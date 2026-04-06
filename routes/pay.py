@@ -2,20 +2,21 @@
 FingerPay — Pay Route
 ======================
 POST /pay
-Verifies a JWT, checks balance, deducts amount, records transaction.
+Verifies a JWT, charges the user via Stripe, records the transaction.
 """
 
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, Field
 
-from pipeline.database import deduct_balance, record_transaction
+from pipeline.database import get_user_by_id, record_transaction
 from utils.jwt import verify_access_token
+from utils.stripe_client import charge_customer
 
 router = APIRouter()
 
 
 class PayRequest(BaseModel):
-    amount: float = Field(..., gt=0, description="Amount to deduct (must be positive)")
+    amount: float = Field(..., gt=0, description="Amount in USD (e.g. 12.50)")
     merchant: str = Field(..., min_length=1, description="Merchant name or ID")
 
 
@@ -25,13 +26,17 @@ async def pay(
     authorization: str = Header(...),
 ):
     """
-    Deduct a payment from the authenticated user's wallet.
+    Charge the authenticated user via Stripe.
 
     Requires Authorization: Bearer <token> header.
     Token must be obtained from POST /authenticate.
-    Returns transaction details and updated balance.
+
+    Flow:
+      1. Verify JWT → get user_id
+      2. Look up user's Stripe customer + payment method
+      3. Charge via Stripe PaymentIntent (off-session)
+      4. Record transaction
     """
-    # ── Extract and verify token ──────────────────────────────────────────────
     if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
@@ -47,14 +52,27 @@ async def pay(
 
     user_id: int = payload["user_id"]
 
-    # ── Deduct balance ────────────────────────────────────────────────────────
     try:
-        new_balance = deduct_balance(user_id=user_id, amount=body.amount)
+        user = get_user_by_id(user_id)
     except ValueError as e:
-        error_msg = str(e)
-        if "Insufficient balance" in error_msg:
-            raise HTTPException(status_code=402, detail=error_msg)
-        raise HTTPException(status_code=404, detail=error_msg)
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if not user.get("stripe_customer_id") or not user.get("stripe_payment_method_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="No payment method on file. User must re-enroll with a payment method.",
+        )
+
+    # ── Charge via Stripe ─────────────────────────────────────────────────────
+    try:
+        charge = charge_customer(
+            stripe_customer_id=user["stripe_customer_id"],
+            stripe_payment_method_id=user["stripe_payment_method_id"],
+            amount_usd=body.amount,
+            merchant=body.merchant,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=402, detail=f"Payment failed: {e}")
 
     # ── Record transaction ────────────────────────────────────────────────────
     try:
@@ -62,7 +80,8 @@ async def pay(
             user_id=user_id,
             amount=body.amount,
             merchant=body.merchant,
-            balance_after=new_balance,
+            stripe_payment_intent_id=charge["stripe_payment_intent_id"],
+            stripe_status=charge["status"],
         )
     except Exception as e:
         raise HTTPException(
@@ -73,5 +92,5 @@ async def pay(
     return {
         "success": True,
         "transaction": transaction,
-        "balance_remaining": new_balance,
+        "stripe_status": charge["status"],
     }

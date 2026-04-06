@@ -9,63 +9,103 @@ from datetime import datetime
 from pathlib import Path
 
 from pipeline.extractor import desc_to_blob, blob_to_desc, match_score, MATCH_THRESHOLD
+from utils.crypto import encrypt_descriptor, decrypt_descriptor
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DB_PATH = Path(__file__).parent.parent / "fingerpay.db"
+import os as _os
+_DATA_DIR = Path(_os.environ.get("DATA_DIR", Path(__file__).parent.parent))
+DB_PATH           = _DATA_DIR / "fingerpay.db"   # identity + payments
+BIOMETRIC_DB_PATH = _DATA_DIR / "biometric.db"   # fingerprints only
 
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 def init_db():
     """Create tables and run safe schema migrations."""
+
+    # ── Identity + payments DB ────────────────────────────────────────────────
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name    TEXT    NOT NULL,
-            email        TEXT    NOT NULL UNIQUE,
-            phone        TEXT,
-            enrolled_at  TEXT    NOT NULL
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS fingerprints (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     INTEGER NOT NULL REFERENCES users(id),
-            descriptor  BLOB    NOT NULL,
-            enrolled_at TEXT    NOT NULL
+            id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name                 TEXT    NOT NULL,
+            email                     TEXT    NOT NULL UNIQUE,
+            phone                     TEXT,
+            stripe_customer_id        TEXT,
+            stripe_payment_method_id  TEXT,
+            enrolled_at               TEXT    NOT NULL
         )
     """)
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id       INTEGER NOT NULL REFERENCES users(id),
-            amount        REAL    NOT NULL,
-            merchant      TEXT    NOT NULL,
-            balance_after REAL    NOT NULL,
-            created_at    TEXT    NOT NULL
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id                  INTEGER NOT NULL REFERENCES users(id),
+            amount                   REAL    NOT NULL,
+            merchant                 TEXT    NOT NULL,
+            stripe_payment_intent_id TEXT,
+            stripe_status            TEXT,
+            created_at               TEXT    NOT NULL
         )
     """)
 
     conn.commit()
 
-    # Safe migration: add balance column to existing users table
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN balance REAL NOT NULL DEFAULT 0.0")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # Column already exists — safe to ignore
+    # Safe migrations for existing databases
+    _safe_add_column(c, "users", "stripe_customer_id", "TEXT")
+    _safe_add_column(c, "users", "stripe_payment_method_id", "TEXT")
+    _safe_add_column(c, "transactions", "stripe_payment_intent_id", "TEXT")
+    _safe_add_column(c, "transactions", "stripe_status", "TEXT")
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS enrollment_sessions (
+            session_id               TEXT    PRIMARY KEY,
+            full_name                TEXT,
+            email                    TEXT,
+            phone                    TEXT,
+            stripe_customer_id       TEXT,
+            stripe_payment_method_id TEXT,
+            status                   TEXT    NOT NULL DEFAULT 'pending_form',
+            created_at               TEXT    NOT NULL
+        )
+    """)
+
+    conn.commit()
     conn.close()
+
+    # ── Biometric DB (separate file — encrypted fingerprints only) ────────────
+    bio_conn = sqlite3.connect(BIOMETRIC_DB_PATH)
+    bio_conn.execute("""
+        CREATE TABLE IF NOT EXISTS fingerprints (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL,
+            descriptor  BLOB    NOT NULL,
+            enrolled_at TEXT    NOT NULL
+        )
+    """)
+    bio_conn.commit()
+    bio_conn.close()
+
+
+def _safe_add_column(cursor, table: str, column: str, col_type: str):
+    try:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
 
 # ── Enroll ────────────────────────────────────────────────────────────────────
-def enroll_user(full_name: str, email: str, phone: str, descriptor) -> dict:
+def enroll_user(
+    full_name: str,
+    email: str,
+    phone: str,
+    descriptor,
+    stripe_customer_id: str,
+    stripe_payment_method_id: str,
+) -> dict:
     """
     Save a new user and their fingerprint to the database.
     Returns the created user record.
@@ -85,22 +125,23 @@ def enroll_user(full_name: str, email: str, phone: str, descriptor) -> dict:
         raise ValueError(f"User with email {email} already enrolled.")
 
     c.execute("""
-        INSERT INTO users (full_name, email, phone, enrolled_at)
-        VALUES (?, ?, ?, ?)
-    """, (full_name, email, phone, now))
+        INSERT INTO users (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, enrolled_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, now))
 
     user_id = c.lastrowid
 
-    c.execute("""
+    bio_conn = sqlite3.connect(BIOMETRIC_DB_PATH)
+    bio_conn.execute("""
         INSERT INTO fingerprints (user_id, descriptor, enrolled_at)
         VALUES (?, ?, ?)
-    """, (user_id, desc_to_blob(descriptor), now))
+    """, (user_id, encrypt_descriptor(desc_to_blob(descriptor)), now))
+    bio_conn.commit()
+    bio_conn.close()
 
     conn.commit()
 
-    row = c.execute(
-        "SELECT * FROM users WHERE id = ?", (user_id,)
-    ).fetchone()
+    row = c.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
 
     return _row_to_dict(row)
@@ -110,90 +151,158 @@ def enroll_user(full_name: str, email: str, phone: str, descriptor) -> dict:
 def find_user_by_fingerprint(probe) -> dict:
     """
     Compare probe descriptor against all enrolled fingerprints.
-    Returns best matching user or None.
+    Reads from biometric DB, then fetches identity from identity DB.
     """
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    bio_conn = sqlite3.connect(BIOMETRIC_DB_PATH)
+    bio_conn.row_factory = sqlite3.Row
     try:
-        c = conn.cursor()
-
-        rows = c.execute("""
-            SELECT f.user_id, f.descriptor
-            FROM fingerprints f
-        """).fetchall()
+        rows = bio_conn.execute(
+            "SELECT user_id, descriptor FROM fingerprints"
+        ).fetchall()
 
         best_id = None
         best_score = 0
 
         for row in rows:
-            score = match_score(probe, blob_to_desc(row["descriptor"]))
+            score = match_score(probe, blob_to_desc(decrypt_descriptor(bytes(row["descriptor"]))))
             if score > best_score:
                 best_score = score
                 best_id = row["user_id"]
 
         matched = best_score >= MATCH_THRESHOLD
+    finally:
+        bio_conn.close()
 
-        if matched and best_id:
-            row = c.execute(
+    if matched and best_id:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
                 "SELECT * FROM users WHERE id = ?", (best_id,)
             ).fetchone()
             return {"matched": True, "score": best_score, "user": _row_to_dict(row)}
+        finally:
+            conn.close()
 
-        return {"matched": False, "score": best_score, "user": None}
+    return {"matched": False, "score": best_score, "user": None}
+
+
+# ── Check email ───────────────────────────────────────────────────────────────
+def check_email_exists(email: str) -> bool:
+    """Return True if a user with this email is already enrolled."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT id FROM users WHERE email = ?", (email,)
+        ).fetchone()
+        return row is not None
     finally:
         conn.close()
 
 
-# ── Balance ───────────────────────────────────────────────────────────────────
-def get_balance(user_id: int) -> float:
-    """Return current balance for the given user_id."""
+# ── Get user by ID ────────────────────────────────────────────────────────────
+def get_user_by_id(user_id: int) -> dict:
+    """Fetch a single user record by ID. Raises ValueError if not found."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT balance FROM users WHERE id = ?", (user_id,)
+            "SELECT * FROM users WHERE id = ?", (user_id,)
         ).fetchone()
         if row is None:
             raise ValueError(f"User {user_id} not found.")
-        return row["balance"]
+        return _row_to_dict(row)
     finally:
         conn.close()
 
 
-def deduct_balance(user_id: int, amount: float) -> float:
-    """
-    Atomically deduct amount from user balance.
-    Raises ValueError if balance is insufficient.
-    Returns new balance after deduction.
-    """
+# ── Enrollment Sessions ───────────────────────────────────────────────────────
+def create_session(session_id: str) -> dict:
+    """Create a blank enrollment session for the kiosk QR code."""
+    now = datetime.now().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            INSERT INTO enrollment_sessions (session_id, status, created_at)
+            VALUES (?, 'pending_form', ?)
+        """, (session_id, now))
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM enrollment_sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def save_session_form(
+    session_id: str,
+    full_name: str,
+    email: str,
+    phone: str,
+    stripe_customer_id: str,
+    stripe_payment_method_id: str,
+) -> dict:
+    """Save customer form data to session after phone submission."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            UPDATE enrollment_sessions
+            SET full_name=?, email=?, phone=?, stripe_customer_id=?,
+                stripe_payment_method_id=?, status='pending_scan'
+            WHERE session_id=?
+        """, (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, session_id))
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM enrollment_sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("Session not found.")
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def get_session(session_id: str) -> dict:
+    """Fetch a session by ID."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT balance FROM users WHERE id = ?", (user_id,)
+            "SELECT * FROM enrollment_sessions WHERE session_id = ?", (session_id,)
         ).fetchone()
         if row is None:
-            raise ValueError(f"User {user_id} not found.")
+            raise ValueError("Session not found.")
+        return dict(row)
+    finally:
+        conn.close()
 
-        current = row["balance"]
-        if current < amount:
-            raise ValueError(
-                f"Insufficient balance: have {current:.2f}, need {amount:.2f}."
-            )
 
-        new_balance = round(current - amount, 10)
+def complete_session(session_id: str) -> None:
+    """Mark a session as complete after fingerprint scan."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
         conn.execute(
-            "UPDATE users SET balance = ? WHERE id = ?", (new_balance, user_id)
+            "UPDATE enrollment_sessions SET status='complete' WHERE session_id=?",
+            (session_id,)
         )
         conn.commit()
-        return new_balance
     finally:
         conn.close()
 
 
-def record_transaction(user_id: int, amount: float, merchant: str, balance_after: float) -> dict:
+# ── Transactions ──────────────────────────────────────────────────────────────
+def record_transaction(
+    user_id: int,
+    amount: float,
+    merchant: str,
+    stripe_payment_intent_id: str,
+    stripe_status: str,
+) -> dict:
     """
-    Persist a completed transaction.
+    Persist a completed Stripe transaction.
     Returns the saved transaction record as a dict.
     """
     now = datetime.now().isoformat()
@@ -201,9 +310,9 @@ def record_transaction(user_id: int, amount: float, merchant: str, balance_after
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("""
-            INSERT INTO transactions (user_id, amount, merchant, balance_after, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, amount, merchant, balance_after, now))
+            INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, created_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?)
+        """, (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, now))
         conn.commit()
         tx_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         row = conn.execute(
