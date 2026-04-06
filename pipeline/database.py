@@ -15,6 +15,7 @@ from utils.crypto import encrypt_descriptor, decrypt_descriptor
 # ── Config ────────────────────────────────────────────────────────────────────
 import os as _os
 _DATA_DIR = Path(_os.environ.get("DATA_DIR", Path(__file__).parent.parent))
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH           = _DATA_DIR / "fingerpay.db"   # identity + payments
 BIOMETRIC_DB_PATH = _DATA_DIR / "biometric.db"   # fingerprints only
 
