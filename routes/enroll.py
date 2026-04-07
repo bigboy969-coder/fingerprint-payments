@@ -22,6 +22,8 @@ from pipeline.database import (
     save_session_form,
     get_session,
     complete_session,
+    get_user_by_id,
+    find_user_by_fingerprint,
 )
 from utils.stripe_client import create_customer
 
@@ -141,7 +143,7 @@ async def complete_enrollment(session_id: str, file: UploadFile = File(...)):
             stripe_customer_id=session["stripe_customer_id"],
             stripe_payment_method_id=session["stripe_payment_method_id"],
         )
-        complete_session(session_id)
+        complete_session(session_id, user_id=user["id"])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -150,3 +152,41 @@ async def complete_enrollment(session_id: str, file: UploadFile = File(...)):
         temp_path.unlink(missing_ok=True)
 
     return {"success": True, "user": user}
+
+
+# ── Step 5: Kiosk submits second scan to confirm enrollment ───────────────────
+@router.post("/verify/{session_id}")
+async def verify_enrollment(session_id: str, file: UploadFile = File(...)):
+    """
+    Kiosk sends a second fingerprint scan right after enrollment to confirm it works.
+    Matches against the just-enrolled user only.
+    """
+    try:
+        session = get_session(session_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    if session["status"] != "complete":
+        raise HTTPException(status_code=400, detail="Enrollment not complete yet.")
+
+    user_id = session.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User not found in session.")
+
+    temp_path = UPLOAD_FOLDER / f"{uuid.uuid4()}.png"
+    with temp_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    try:
+        descriptor = extract_descriptor(str(temp_path))
+        result = find_user_by_fingerprint(descriptor)
+        if not result["matched"] or result["user"]["id"] != user_id:
+            raise HTTPException(status_code=401, detail="Fingerprint did not match. Try again.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+    return {"success": True, "message": "Fingerprint confirmed!", "name": result["user"]["full_name"]}

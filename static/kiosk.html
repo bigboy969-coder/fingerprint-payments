@@ -72,6 +72,12 @@
     }
     #fp-input { display: none; }
 
+    /* ── Confirm scan ── */
+    #confirm-view { display: none; }
+    #confirm-view .finger-icon { font-size: 80px; margin-bottom: 24px; animation: pulse 1.5s infinite; }
+    #confirm-view h2 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
+    #confirm-view p { font-size: 15px; color: #aaa; margin-bottom: 32px; }
+
     /* ── Complete ── */
     #complete-view { display: none; }
     #complete-view .icon { font-size: 72px; margin-bottom: 20px; }
@@ -105,11 +111,20 @@
     <input type="file" id="fp-input" accept="image/*" onchange="submitFingerprint(this)" />
   </div>
 
-  <!-- State 3: Enrollment complete -->
+  <!-- State 3: Confirm scan -->
+  <div id="confirm-view">
+    <div class="finger-icon">👆</div>
+    <h2>Scan again to confirm</h2>
+    <p>Enrolled! Now scan your finger one more time to verify it works.</p>
+    <label class="upload-label" for="fp-confirm-input">Scan Finger (Confirm)</label>
+    <input type="file" id="fp-confirm-input" accept="image/*" onchange="confirmFingerprint(this)" />
+  </div>
+
+  <!-- State 4: Enrollment complete -->
   <div id="complete-view">
     <div class="icon">✅</div>
-    <h2>Enrolled!</h2>
-    <p>You're all set. Place your finger at checkout to pay.</p>
+    <h2>You're in, <span id="success-name"></span>!</h2>
+    <p>Fingerprint confirmed. Just scan your finger at checkout to pay.</p>
     <button class="new-btn" onclick="newSession()" style="margin-top:8px">Next Customer</button>
   </div>
 
@@ -173,16 +188,40 @@
       });
 
       if (res.ok) {
-        showView("complete-view");
+        showView("confirm-view");
       } else {
         const data = await res.json();
         alert("Error: " + (data.detail || "Enrollment failed."));
       }
     }
 
+    // ── Confirm fingerprint (second scan after enrollment) ────────────────────
+    async function confirmFingerprint(input) {
+      const file = input.files[0];
+      if (!file || !currentSessionId) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(`/enroll/verify/${currentSessionId}`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById("success-name").textContent = data.name;
+        showView("complete-view");
+      } else {
+        const data = await res.json();
+        alert("Scan failed: " + (data.detail || "Try again."));
+        input.value = "";
+      }
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
     function showView(id) {
-      ["waiting-view", "scan-view", "complete-view"].forEach(v => {
+      ["waiting-view", "scan-view", "confirm-view", "complete-view"].forEach(v => {
         document.getElementById(v).style.display = v === id ? "block" : "none";
       });
     }

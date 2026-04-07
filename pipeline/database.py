@@ -60,6 +60,7 @@ def init_db():
     _safe_add_column(c, "users", "stripe_payment_method_id", "TEXT")
     _safe_add_column(c, "transactions", "stripe_payment_intent_id", "TEXT")
     _safe_add_column(c, "transactions", "stripe_status", "TEXT")
+    _safe_add_column(c, "enrollment_sessions", "user_id", "INTEGER")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS enrollment_sessions (
@@ -281,13 +282,13 @@ def get_session(session_id: str) -> dict:
         conn.close()
 
 
-def complete_session(session_id: str) -> None:
-    """Mark a session as complete after fingerprint scan."""
+def complete_session(session_id: str, user_id: int) -> None:
+    """Mark a session as complete after fingerprint scan, storing the enrolled user_id."""
     conn = sqlite3.connect(DB_PATH)
     try:
         conn.execute(
-            "UPDATE enrollment_sessions SET status='complete' WHERE session_id=?",
-            (session_id,)
+            "UPDATE enrollment_sessions SET status='complete', user_id=? WHERE session_id=?",
+            (user_id, session_id)
         )
         conn.commit()
     finally:
