@@ -27,28 +27,25 @@
       box-shadow: 0 4px 24px rgba(0,0,0,0.08);
     }
 
-    .logo {
-      font-size: 22px;
+    .logo { font-size: 22px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+    .subtitle { font-size: 14px; color: #888; margin-bottom: 28px; }
+
+    /* ── Section headers ── */
+    .section-title {
+      font-size: 11px;
       font-weight: 700;
-      color: #1a1a1a;
-      margin-bottom: 6px;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 12px;
+      margin-top: 24px;
     }
+    .section-title:first-of-type { margin-top: 0; }
 
-    .subtitle {
-      font-size: 14px;
-      color: #888;
-      margin-bottom: 28px;
-    }
-
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: #444;
-      margin-bottom: 6px;
-    }
-
-    input {
+    /* ── Text inputs ── */
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 5px; }
+    .field input {
       width: 100%;
       padding: 12px 14px;
       border: 1.5px solid #e0e0e0;
@@ -56,21 +53,32 @@
       font-size: 16px;
       outline: none;
       transition: border-color 0.2s;
-      margin-bottom: 16px;
+      color: #1a1a1a;
     }
+    .field input:focus { border-color: #000; }
 
-    input:focus { border-color: #000; }
-
-    .stripe-wrapper {
+    /* ── Stripe element wrappers ── */
+    .stripe-field { margin-bottom: 12px; }
+    .stripe-field label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 5px; }
+    .stripe-input {
       padding: 12px 14px;
       border: 1.5px solid #e0e0e0;
       border-radius: 10px;
-      margin-bottom: 24px;
       transition: border-color 0.2s;
     }
+    .stripe-input.focused { border-color: #000; }
 
-    .stripe-wrapper.focused { border-color: #000; }
+    /* ── Expiry + CVC side by side ── */
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
+    /* ── Divider ── */
+    .divider {
+      height: 1px;
+      background: #f0f0f0;
+      margin: 20px 0;
+    }
+
+    /* ── Submit ── */
     button {
       width: 100%;
       padding: 14px;
@@ -81,21 +89,13 @@
       font-size: 16px;
       font-weight: 600;
       cursor: pointer;
+      margin-top: 20px;
       transition: background 0.2s;
     }
-
     button:hover { background: #222; }
     button:disabled { background: #999; cursor: not-allowed; }
 
-    .success {
-      text-align: center;
-      display: none;
-    }
-
-    .success .icon { font-size: 56px; margin-bottom: 16px; }
-    .success h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
-    .success p { font-size: 15px; color: #666; line-height: 1.5; }
-
+    /* ── Error ── */
     .error-msg {
       background: #fff0f0;
       color: #c00;
@@ -105,6 +105,12 @@
       margin-bottom: 16px;
       display: none;
     }
+
+    /* ── Success ── */
+    .success { text-align: center; display: none; }
+    .success .icon { font-size: 56px; margin-bottom: 16px; }
+    .success h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .success p { font-size: 15px; color: #666; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -117,18 +123,57 @@
 
       <div id="error-msg" class="error-msg"></div>
 
-      <label>Full name</label>
-      <input type="text" id="full_name" placeholder="Warren Emmanuel" autocomplete="name" />
+      <!-- Section 1: Personal Info -->
+      <div class="section-title">Your Info</div>
 
-      <label>Email</label>
-      <input type="email" id="email" placeholder="you@example.com" autocomplete="email" />
+      <div class="field">
+        <label>Full Name</label>
+        <input type="text" id="full_name" placeholder="Warren Emmanuel" autocomplete="name" />
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <div class="field">
+        <label>Phone <span style="color:#bbb;font-weight:400">(optional)</span></label>
+        <input type="tel" id="phone" placeholder="+1 234 567 8900" autocomplete="tel" />
+      </div>
 
-      <label>Phone (optional)</label>
-      <input type="tel" id="phone" placeholder="+1 234 567 8900" autocomplete="tel" />
+      <div class="divider"></div>
 
-      <label>Card details</label>
-      <div class="stripe-wrapper" id="card-wrapper">
-        <div id="card-element"></div>
+      <!-- Section 2: Card Details -->
+      <div class="section-title">Card Details</div>
+
+      <div class="stripe-field">
+        <label>Card Number</label>
+        <div class="stripe-input" id="card-number-wrapper">
+          <div id="card-number-element"></div>
+        </div>
+      </div>
+
+      <div class="row-2">
+        <div class="stripe-field">
+          <label>Expiry Date</label>
+          <div class="stripe-input" id="card-expiry-wrapper">
+            <div id="card-expiry-element"></div>
+          </div>
+        </div>
+        <div class="stripe-field">
+          <label>CVV</label>
+          <div class="stripe-input" id="card-cvc-wrapper">
+            <div id="card-cvc-element"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Section 3: Billing -->
+      <div class="section-title">Billing</div>
+
+      <div class="field">
+        <label>ZIP / Postal Code</label>
+        <input type="text" id="zip" placeholder="e.g. 10001" autocomplete="postal-code" inputmode="numeric" />
       </div>
 
       <button id="submit-btn" onclick="submitForm()">Enroll my card</button>
@@ -144,7 +189,6 @@
   </div>
 
   <script>
-    // ── Get session ID from URL ───────────────────────────────────────────────
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session");
 
@@ -154,35 +198,48 @@
       document.getElementById("submit-btn").disabled = true;
     }
 
-    // ── Init Stripe ───────────────────────────────────────────────────────────
-    let stripe, cardElement;
+    let stripe, cardNumber, cardExpiry, cardCvc;
 
     async function initStripe() {
       const res = await fetch("/config");
       const { publishable_key } = await res.json();
       stripe = Stripe(publishable_key);
       const elements = stripe.elements();
-      cardElement = elements.create("card", {
-        style: {
-          base: { fontSize: "16px", color: "#1a1a1a", "::placeholder": { color: "#aaa" } }
-        }
+
+      const style = {
+        base: { fontSize: "16px", color: "#1a1a1a", "::placeholder": { color: "#bbb" } }
+      };
+
+      cardNumber = elements.create("cardNumber", { style });
+      cardExpiry = elements.create("cardExpiry", { style });
+      cardCvc    = elements.create("cardCvc",    { style });
+
+      cardNumber.mount("#card-number-element");
+      cardExpiry.mount("#card-expiry-element");
+      cardCvc.mount("#card-cvc-element");
+
+      // Focus styling
+      [
+        [cardNumber, "card-number-wrapper"],
+        [cardExpiry, "card-expiry-wrapper"],
+        [cardCvc,    "card-cvc-wrapper"],
+      ].forEach(([el, id]) => {
+        el.on("focus", () => document.getElementById(id).classList.add("focused"));
+        el.on("blur",  () => document.getElementById(id).classList.remove("focused"));
       });
-      cardElement.mount("#card-element");
-      cardElement.on("focus", () => document.getElementById("card-wrapper").classList.add("focused"));
-      cardElement.on("blur", () => document.getElementById("card-wrapper").classList.remove("focused"));
     }
 
     initStripe();
 
-    // ── Submit form ───────────────────────────────────────────────────────────
     async function submitForm() {
       const btn = document.getElementById("submit-btn");
       const errorEl = document.getElementById("error-msg");
       errorEl.style.display = "none";
 
       const full_name = document.getElementById("full_name").value.trim();
-      const email = document.getElementById("email").value.trim();
-      const phone = document.getElementById("phone").value.trim();
+      const email     = document.getElementById("email").value.trim();
+      const phone     = document.getElementById("phone").value.trim();
+      const zip       = document.getElementById("zip").value.trim();
 
       if (!full_name || !email) {
         errorEl.textContent = "Please fill in your name and email.";
@@ -193,11 +250,14 @@
       btn.disabled = true;
       btn.textContent = "Setting up...";
 
-      // Tokenize card with Stripe
       const { paymentMethod, error } = await stripe.createPaymentMethod({
         type: "card",
-        card: cardElement,
-        billing_details: { name: full_name, email },
+        card: cardNumber,
+        billing_details: {
+          name: full_name,
+          email,
+          address: { postal_code: zip || undefined },
+        },
       });
 
       if (error) {
@@ -208,7 +268,6 @@
         return;
       }
 
-      // Send to backend
       const res = await fetch("/enroll/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -231,7 +290,6 @@
         return;
       }
 
-      // Show success
       document.getElementById("form-view").style.display = "none";
       document.getElementById("success-view").style.display = "block";
     }
