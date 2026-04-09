@@ -176,6 +176,11 @@
   </div>
 
   <script>
+    // Redirect to dashboard if already logged in
+    if (localStorage.getItem("merchant_token")) {
+      window.location.href = "/business/dashboard";
+    }
+
     async function signup() {
       const btn = document.getElementById("submit-btn");
       const errorEl = document.getElementById("error");
