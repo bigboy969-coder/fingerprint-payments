@@ -22,6 +22,7 @@ from routes.enroll import router as enroll_router
 from routes.authenticate import router as authenticate_router
 from routes.pay import router as pay_router
 from routes.merchants import router as merchants_router
+from routes.pos import router as pos_router
 
 # ── Logging (no sensitive data) ───────────────────────────────────────────────
 logging.basicConfig(
@@ -73,6 +74,7 @@ app.include_router(enroll_router)
 app.include_router(authenticate_router)
 app.include_router(pay_router)
 app.include_router(merchants_router)
+app.include_router(pos_router)
 
 
 @app.get("/config")
