@@ -39,30 +39,86 @@ def create_customer(full_name: str, email: str, payment_method_id: str) -> str:
     return customer.id
 
 
+TRANSACTION_RATE = 0.005   # 0.5% per transaction
+SCAN_FEE        = 0.05    # $0.05 per scan
+MONTHLY_FEE     = 29.00   # $29/month per terminal
+
+
+def calculate_platform_fee(amount_usd: float, include_monthly: bool = False) -> float:
+    """Calculate total platform fee for a transaction."""
+    fee = round(amount_usd * TRANSACTION_RATE, 2) + SCAN_FEE
+    if include_monthly:
+        fee += MONTHLY_FEE
+    return round(fee, 2)
+
+
 def charge_customer(
     stripe_customer_id: str,
     stripe_payment_method_id: str,
     amount_usd: float,
     merchant: str,
+    stripe_connect_id: str = None,
+    platform_fee_usd: float = None,
 ) -> dict:
     """
     Charge a saved customer off-session (no phone/card present).
     amount_usd is in dollars (e.g. 12.50).
+    If stripe_connect_id is provided, payment is routed to merchant's account
+    with platform_fee_usd deducted for FingerPay.
     Returns the PaymentIntent object as a dict.
     """
-    intent = stripe.PaymentIntent.create(
-        amount=round(amount_usd * 100),  # Stripe uses cents
+    params = dict(
+        amount=round(amount_usd * 100),
         currency="usd",
         customer=stripe_customer_id,
         payment_method=stripe_payment_method_id,
         confirm=True,
-        off_session=True,  # terminal charge — no customer interaction
+        off_session=True,
         description=f"FingerPay purchase at {merchant}",
-        idempotency_key=str(uuid.uuid4()),  # prevents double charges on retries
+        idempotency_key=str(uuid.uuid4()),
     )
+
+    if stripe_connect_id and platform_fee_usd is not None:
+        params["application_fee_amount"] = round(platform_fee_usd * 100)
+        params["transfer_data"] = {"destination": stripe_connect_id}
+
+    intent = stripe.PaymentIntent.create(**params)
     return {
         "stripe_payment_intent_id": intent.id,
         "status": intent.status,
         "amount": amount_usd,
         "merchant": merchant,
     }
+
+
+def create_connect_account(email: str, business_name: str) -> str:
+    """Create a Stripe Express account for a merchant. Returns the account ID."""
+    account = stripe.Account.create(
+        type="express",
+        email=email,
+        business_profile={"name": business_name},
+        capabilities={
+            "card_payments": {"requested": True},
+            "transfers": {"requested": True},
+        },
+    )
+    return account.id
+
+
+def create_onboarding_link(account_id: str, return_url: str, refresh_url: str) -> str:
+    """Generate a Stripe Connect onboarding URL for a merchant. Returns the URL."""
+    link = stripe.AccountLink.create(
+        account=account_id,
+        return_url=return_url,
+        refresh_url=refresh_url,
+        type="account_onboarding",
+    )
+    return link.url
+
+
+def get_connect_account_status(account_id: str) -> str:
+    """Returns 'active' if merchant has completed onboarding, else 'pending'."""
+    account = stripe.Account.retrieve(account_id)
+    if account.details_submitted and account.charges_enabled:
+        return "active"
+    return "pending"

@@ -38,7 +38,7 @@ async def authenticate(
     """
     # Verify merchant API key
     try:
-        verify_merchant_api_key(x_api_key)
+        merchant = verify_merchant_api_key(x_api_key)
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid merchant API key.")
 
@@ -62,7 +62,7 @@ async def authenticate(
         raise HTTPException(status_code=401, detail="Fingerprint not recognized.")
 
     user = result["user"]
-    token = create_access_token(user_id=user["id"])
+    token = create_access_token(user_id=user["id"], merchant_id=merchant["id"])
 
     return {
         "access_token": token,

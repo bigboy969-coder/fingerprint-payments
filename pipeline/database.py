@@ -63,6 +63,34 @@ def init_db():
     _safe_add_column(c, "enrollment_sessions", "user_id", "INTEGER")
 
     c.execute("""
+        CREATE TABLE IF NOT EXISTS merchants (
+            id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_name          TEXT    NOT NULL,
+            name                   TEXT    NOT NULL,
+            email                  TEXT    NOT NULL UNIQUE,
+            password_hash          TEXT    NOT NULL,
+            api_key_hash           TEXT,
+            stripe_connect_id      TEXT,
+            stripe_connect_status  TEXT    DEFAULT 'pending',
+            last_monthly_fee_month TEXT,
+            is_active              INTEGER DEFAULT 1,
+            created_at             TEXT    NOT NULL
+        )
+    """)
+
+    # Migrations for existing merchants table
+    _safe_add_column(c, "merchants", "business_name", "TEXT")
+    _safe_add_column(c, "merchants", "password_hash", "TEXT")
+    _safe_add_column(c, "merchants", "stripe_connect_id", "TEXT")
+    _safe_add_column(c, "merchants", "stripe_connect_status", "TEXT")
+    _safe_add_column(c, "merchants", "last_monthly_fee_month", "TEXT")
+    _safe_add_column(c, "merchants", "is_active", "INTEGER")
+
+    # Add merchant_id and platform_fee to transactions
+    _safe_add_column(c, "transactions", "merchant_id", "INTEGER")
+    _safe_add_column(c, "transactions", "platform_fee", "REAL")
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS enrollment_sessions (
             session_id               TEXT    PRIMARY KEY,
             full_name                TEXT,
@@ -302,6 +330,8 @@ def record_transaction(
     merchant: str,
     stripe_payment_intent_id: str,
     stripe_status: str,
+    merchant_id: int = None,
+    platform_fee: float = 0.0,
 ) -> dict:
     """
     Persist a completed Stripe transaction.
@@ -312,15 +342,129 @@ def record_transaction(
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("""
-            INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, created_at)
-            VALUES (?, ?, ?, ?, ?, 0, ?)
-        """, (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, now))
+            INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+        """, (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, merchant_id, platform_fee, now))
         conn.commit()
         tx_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         row = conn.execute(
             "SELECT * FROM transactions WHERE id = ?", (tx_id,)
         ).fetchone()
         return dict(row)
+    finally:
+        conn.close()
+
+
+# ── Merchants ─────────────────────────────────────────────────────────────────
+def create_merchant(business_name: str, name: str, email: str, password_hash: str, api_key_hash: str) -> dict:
+    now = datetime.now().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            INSERT INTO merchants (business_name, name, email, password_hash, api_key_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (business_name, name, email, password_hash, api_key_hash, now))
+        conn.commit()
+        row = conn.execute("SELECT * FROM merchants WHERE email = ?", (email,)).fetchone()
+        return _row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def get_merchant_by_email(email: str) -> dict | None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM merchants WHERE email = ?", (email,)).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_merchant_by_id(merchant_id: int) -> dict | None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM merchants WHERE id = ?", (merchant_id,)).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_merchant_by_api_key_hash(key_hash: str) -> dict | None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM merchants WHERE api_key_hash = ?", (key_hash,)).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_merchant_connect(merchant_id: int, stripe_connect_id: str, status: str) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            "UPDATE merchants SET stripe_connect_id=?, stripe_connect_status=? WHERE id=?",
+            (stripe_connect_id, status, merchant_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_merchant_api_key(merchant_id: int, api_key_hash: str) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("UPDATE merchants SET api_key_hash=? WHERE id=?", (api_key_hash, merchant_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_merchant_monthly_fee_month(merchant_id: int, month: str) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("UPDATE merchants SET last_monthly_fee_month=? WHERE id=?", (month, merchant_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_merchant_stats(merchant_id: int) -> dict:
+    """Returns this month's transaction count, total processed, and total fees."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        current_month = datetime.now().strftime("%Y-%m")
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as tx_count,
+                COALESCE(SUM(amount), 0) as total_processed,
+                COALESCE(SUM(platform_fee), 0) as total_fees
+            FROM transactions
+            WHERE merchant_id = ? AND strftime('%Y-%m', created_at) = ?
+        """, (merchant_id, current_month)).fetchone()
+        return dict(row) if row else {"tx_count": 0, "total_processed": 0.0, "total_fees": 0.0}
+    finally:
+        conn.close()
+
+
+def get_merchant_recent_transactions(merchant_id: int, limit: int = 10) -> list:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("""
+            SELECT t.id, t.amount, t.platform_fee, t.stripe_status, t.created_at,
+                   u.full_name as customer_name
+            FROM transactions t
+            LEFT JOIN users u ON t.user_id = u.id
+            WHERE t.merchant_id = ?
+            ORDER BY t.created_at DESC
+            LIMIT ?
+        """, (merchant_id, limit)).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 

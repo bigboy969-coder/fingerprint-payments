@@ -86,6 +86,21 @@ def kiosk():
     return RedirectResponse(url="/static/kiosk.html")
 
 
+@app.get("/business")
+def merchant_signup():
+    return RedirectResponse(url="/static/merchant-signup.html")
+
+
+@app.get("/business/login")
+def merchant_login():
+    return RedirectResponse(url="/static/merchant-login.html")
+
+
+@app.get("/business/dashboard")
+def merchant_dashboard():
+    return RedirectResponse(url="/static/merchant-dashboard.html")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -8,9 +8,9 @@ Verifies a JWT, charges the user via Stripe, records the transaction.
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, Field
 
-from pipeline.database import get_user_by_id, record_transaction
+from pipeline.database import get_user_by_id, get_merchant_by_id, record_transaction, update_merchant_monthly_fee_month
 from utils.jwt import verify_access_token
-from utils.stripe_client import charge_customer
+from utils.stripe_client import charge_customer, calculate_platform_fee, MONTHLY_FEE
 
 router = APIRouter()
 
@@ -63,6 +63,18 @@ async def pay(
             detail="No payment method on file. User must re-enroll with a payment method.",
         )
 
+    # ── Look up merchant and calculate fees ───────────────────────────────────
+    merchant_id = payload.get("merchant_id")
+    merchant = get_merchant_by_id(merchant_id) if merchant_id else None
+
+    from datetime import datetime
+    current_month = datetime.now().strftime("%Y-%m")
+    include_monthly = (
+        merchant is not None and
+        merchant.get("last_monthly_fee_month") != current_month
+    )
+    platform_fee = calculate_platform_fee(body.amount, include_monthly=include_monthly)
+
     # ── Charge via Stripe ─────────────────────────────────────────────────────
     try:
         charge = charge_customer(
@@ -70,9 +82,15 @@ async def pay(
             stripe_payment_method_id=user["stripe_payment_method_id"],
             amount_usd=body.amount,
             merchant=body.merchant,
+            stripe_connect_id=merchant.get("stripe_connect_id") if merchant else None,
+            platform_fee_usd=platform_fee if merchant and merchant.get("stripe_connect_id") else None,
         )
     except Exception as e:
         raise HTTPException(status_code=402, detail=f"Payment failed: {e}")
+
+    # Mark monthly fee as collected this month
+    if include_monthly and merchant:
+        update_merchant_monthly_fee_month(merchant["id"], current_month)
 
     # ── Record transaction ────────────────────────────────────────────────────
     try:
@@ -82,6 +100,8 @@ async def pay(
             merchant=body.merchant,
             stripe_payment_intent_id=charge["stripe_payment_intent_id"],
             stripe_status=charge["status"],
+            merchant_id=merchant_id,
+            platform_fee=platform_fee,
         )
     except Exception as e:
         raise HTTPException(

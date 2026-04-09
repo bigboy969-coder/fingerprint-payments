@@ -1,54 +1,209 @@
 """
 FingerPay — Merchant Routes
 =============================
-POST /merchants/register  - register a new merchant, get an API key
+POST /merchants/signup         - create a merchant account
+POST /merchants/login          - get a merchant JWT
+GET  /merchants/me             - dashboard data (requires merchant JWT)
+POST /merchants/connect        - start Stripe Connect onboarding
+GET  /merchants/connect/return - after Stripe Connect onboarding completes
+POST /merchants/regenerate-key - generate a new API key
 """
 
 import secrets
 import hashlib
-import sqlite3
-from datetime import datetime
-from pathlib import Path
 
+import bcrypt
 from fastapi import APIRouter, HTTPException, Header
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
+
+from pipeline.database import (
+    create_merchant,
+    get_merchant_by_email,
+    get_merchant_by_id,
+    get_merchant_by_api_key_hash,
+    update_merchant_connect,
+    update_merchant_api_key,
+    get_merchant_stats,
+    get_merchant_recent_transactions,
+)
+from utils.jwt import create_merchant_token, verify_merchant_token
+from utils.stripe_client import (
+    create_connect_account,
+    create_onboarding_link,
+    get_connect_account_status,
+)
 
 router = APIRouter(prefix="/merchants")
 
-DB_PATH = Path(__file__).parent.parent / "fingerpay.db"
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _hash_api_key(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
-def _init_merchants_table():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS merchants (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT    NOT NULL,
-            email      TEXT    NOT NULL UNIQUE,
-            api_key_hash TEXT  NOT NULL,
-            created_at TEXT    NOT NULL
-        )
-    """)
-    conn.commit()
-    conn.close()
+def _get_merchant_from_token(authorization: str) -> dict:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header must be: Bearer <token>")
+    token = authorization.removeprefix("Bearer ")
+    try:
+        payload = verify_merchant_token(token)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    merchant = get_merchant_by_id(payload["merchant_id"])
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found.")
+    return merchant
 
 
 def verify_merchant_api_key(api_key: str) -> dict:
     """Verify an API key — returns merchant record or raises ValueError."""
-    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    key_hash = _hash_api_key(api_key)
+    merchant = get_merchant_by_api_key_hash(key_hash)
+    if not merchant:
+        raise ValueError("Invalid API key.")
+    return merchant
+
+
+# ── Signup ────────────────────────────────────────────────────────────────────
+class MerchantSignup(BaseModel):
+    business_name: str
+    name: str
+    email: str
+    password: str
+
+
+@router.post("/signup")
+async def signup(body: MerchantSignup):
+    if get_merchant_by_email(body.email):
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+
+    password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+    api_key = secrets.token_urlsafe(32)
+    api_key_hash = _hash_api_key(api_key)
+
+    merchant = create_merchant(
+        business_name=body.business_name,
+        name=body.name,
+        email=body.email,
+        password_hash=password_hash,
+        api_key_hash=api_key_hash,
+    )
+
+    token = create_merchant_token(merchant["id"])
+
+    return {
+        "success": True,
+        "token": token,
+        "api_key": api_key,
+        "warning": "Save your API key now — it will not be shown again.",
+    }
+
+
+# ── Login ─────────────────────────────────────────────────────────────────────
+class MerchantLogin(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/login")
+async def login(body: MerchantLogin):
+    merchant = get_merchant_by_email(body.email)
+    if not merchant or not merchant.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    if not bcrypt.checkpw(body.password.encode(), merchant["password_hash"].encode()):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    token = create_merchant_token(merchant["id"])
+    return {"success": True, "token": token}
+
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+@router.get("/me")
+async def dashboard(authorization: str = Header(...)):
+    merchant = _get_merchant_from_token(authorization)
+    stats = get_merchant_stats(merchant["id"])
+    recent = get_merchant_recent_transactions(merchant["id"])
+
+    return {
+        "business_name": merchant["business_name"],
+        "name": merchant["name"],
+        "email": merchant["email"],
+        "stripe_connect_status": merchant.get("stripe_connect_status", "pending"),
+        "stats": stats,
+        "recent_transactions": recent,
+    }
+
+
+# ── Stripe Connect ────────────────────────────────────────────────────────────
+@router.post("/connect")
+async def start_connect(authorization: str = Header(...)):
+    merchant = _get_merchant_from_token(authorization)
+
+    if merchant.get("stripe_connect_id") and merchant.get("stripe_connect_status") == "active":
+        raise HTTPException(status_code=400, detail="Bank account already connected.")
+
     try:
-        row = conn.execute(
-            "SELECT * FROM merchants WHERE api_key_hash = ?", (key_hash,)
-        ).fetchone()
-        if row is None:
-            raise ValueError("Invalid API key.")
-        return dict(row)
-    finally:
-        conn.close()
+        if not merchant.get("stripe_connect_id"):
+            connect_id = create_connect_account(
+                email=merchant["email"],
+                business_name=merchant["business_name"],
+            )
+            update_merchant_connect(merchant["id"], connect_id, "pending")
+        else:
+            connect_id = merchant["stripe_connect_id"]
+
+        import os
+        base_url = os.environ.get("APP_BASE_URL", "https://fingerprint-payments.onrender.com")
+        onboarding_url = create_onboarding_link(
+            account_id=connect_id,
+            return_url=f"{base_url}/merchants/connect/return",
+            refresh_url=f"{base_url}/static/merchant-dashboard.html",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stripe Connect error: {e}")
+
+    return {"onboarding_url": onboarding_url}
 
 
+@router.get("/connect/return")
+async def connect_return(account: str = None):
+    """Stripe redirects here after the merchant completes onboarding."""
+    if account:
+        try:
+            status = get_connect_account_status(account)
+            from pipeline.database import DB_PATH
+            import sqlite3
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(
+                "UPDATE merchants SET stripe_connect_status=? WHERE stripe_connect_id=?",
+                (status, account)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+    return RedirectResponse(url="/static/merchant-dashboard.html")
+
+
+# ── Regenerate API key ────────────────────────────────────────────────────────
+@router.post("/regenerate-key")
+async def regenerate_key(authorization: str = Header(...)):
+    merchant = _get_merchant_from_token(authorization)
+
+    new_key = secrets.token_urlsafe(32)
+    new_hash = _hash_api_key(new_key)
+    update_merchant_api_key(merchant["id"], new_hash)
+
+    return {
+        "success": True,
+        "api_key": new_key,
+        "warning": "Save your new API key now — it will not be shown again.",
+    }
+
+
+# ── Legacy register (kept for backwards compatibility) ────────────────────────
 class MerchantRegister(BaseModel):
     name: str
     email: str
@@ -56,30 +211,8 @@ class MerchantRegister(BaseModel):
 
 @router.post("/register")
 async def register_merchant(body: MerchantRegister):
-    """
-    Register a new merchant. Returns a one-time API key.
-    Store this key securely — it won't be shown again.
-    """
-    _init_merchants_table()
-
-    api_key = secrets.token_urlsafe(32)
-    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-    now = datetime.now().isoformat()
-
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute("""
-            INSERT INTO merchants (name, email, api_key_hash, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (body.name, body.email, key_hash, now))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Merchant with this email already exists.")
-    finally:
-        conn.close()
-
-    return {
-        "success": True,
-        "api_key": api_key,
-        "warning": "Save this key now — it will not be shown again.",
-    }
+    """Legacy endpoint — use /merchants/signup instead."""
+    raise HTTPException(
+        status_code=410,
+        detail="This endpoint is deprecated. Use POST /merchants/signup instead."
+    )

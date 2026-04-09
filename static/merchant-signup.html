@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FingerPay for Business — Sign Up</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #000;
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .logo { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .tagline { font-size: 13px; color: #666; margin-bottom: 40px; }
+
+    .card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 16px;
+      padding: 32px;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .card h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .card p { font-size: 14px; color: #666; margin-bottom: 28px; }
+
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+    .field input {
+      width: 100%;
+      padding: 12px 14px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: white;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .field input:focus { border-color: #555; }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: white;
+      color: black;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .error {
+      background: #2a1010;
+      border: 1px solid #5a1a1a;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      color: #ff6b6b;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .api-key-box {
+      background: #0a1a0a;
+      border: 1px solid #1a4a1a;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .api-key-box p { color: #4ade80; font-size: 13px; margin-bottom: 8px; }
+    .api-key-box code {
+      display: block;
+      font-family: monospace;
+      font-size: 13px;
+      color: white;
+      word-break: break-all;
+      background: #111;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #333;
+    }
+    .api-key-box .warning {
+      font-size: 12px;
+      color: #f59e0b;
+      margin-top: 8px;
+    }
+
+    .login-link {
+      text-align: center;
+      font-size: 13px;
+      color: #555;
+      margin-top: 20px;
+    }
+    .login-link a { color: #aaa; text-decoration: none; }
+    .login-link a:hover { color: white; }
+
+    .pricing {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid #222;
+    }
+    .pricing p { font-size: 12px; color: #555; text-align: center; line-height: 1.8; }
+    .pricing span { color: #888; }
+  </style>
+</head>
+<body>
+
+  <div class="logo">FingerPay for Business</div>
+  <div class="tagline">Accept fingerprint payments at your counter</div>
+
+  <div class="card">
+    <h1>Create your account</h1>
+    <p>Start accepting fingerprint payments in minutes.</p>
+
+    <div class="error" id="error"></div>
+
+    <div id="api-key-box" class="api-key-box">
+      <p>Your API Key — save this now</p>
+      <code id="api-key-value"></code>
+      <div class="warning">This key will not be shown again. Copy it somewhere safe.</div>
+    </div>
+
+    <div id="form">
+      <div class="field">
+        <label>Business Name</label>
+        <input type="text" id="business_name" placeholder="e.g. Joe's Coffee" />
+      </div>
+      <div class="field">
+        <label>Your Name</label>
+        <input type="text" id="name" placeholder="e.g. Joe Smith" />
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="you@business.com" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="Choose a strong password" />
+      </div>
+      <button class="btn" id="submit-btn" onclick="signup()">Create Account</button>
+    </div>
+
+    <div id="after-signup" style="display:none;">
+      <button class="btn" onclick="window.location.href='/business/dashboard'">Go to Dashboard</button>
+    </div>
+
+    <div class="pricing">
+      <p>
+        <span>0.5%</span> per transaction &nbsp;·&nbsp;
+        <span>$0.05</span> per scan &nbsp;·&nbsp;
+        <span>$29</span>/month per terminal<br>
+        Merchant pays Stripe fees (2.9% + 30¢)
+      </p>
+    </div>
+  </div>
+
+  <div class="login-link">
+    Already have an account? <a href="/business/login">Sign in</a>
+  </div>
+
+  <script>
+    async function signup() {
+      const btn = document.getElementById("submit-btn");
+      const errorEl = document.getElementById("error");
+      errorEl.style.display = "none";
+
+      const business_name = document.getElementById("business_name").value.trim();
+      const name = document.getElementById("name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      if (!business_name || !name || !email || !password) {
+        errorEl.textContent = "Please fill in all fields.";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Creating account...";
+
+      try {
+        const res = await fetch("/merchants/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ business_name, name, email, password }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          errorEl.textContent = data.detail || "Signup failed.";
+          errorEl.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "Create Account";
+          return;
+        }
+
+        // Save token
+        localStorage.setItem("merchant_token", data.token);
+
+        // Show API key
+        document.getElementById("api-key-value").textContent = data.api_key;
+        document.getElementById("api-key-box").style.display = "block";
+        document.getElementById("form").style.display = "none";
+        document.getElementById("after-signup").style.display = "block";
+
+      } catch (e) {
+        errorEl.textContent = "Network error. Please try again.";
+        errorEl.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "Create Account";
+      }
+    }
+  </script>
+</body>
+</html>
