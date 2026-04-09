@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FingerPay — Pay with your finger</title>
+  <meta name="description" content="FingerPay replaces cards and phones at checkout. Customers pay with just their fingerprint. Faster, frictionless, and secure." />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #000;
+      --surface: #0f0f0f;
+      --border: #1a1a1a;
+      --text: #fff;
+      --muted: #666;
+      --subtle: #333;
+      --green: #4ade80;
+      --accent: #fff;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 48px;
+      background: rgba(0,0,0,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo { font-size: 18px; font-weight: 700; }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .nav-links a:hover { color: white; }
+
+    .nav-cta {
+      padding: 9px 20px;
+      background: white;
+      color: black;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.85; }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border: 1px solid var(--subtle);
+      border-radius: 20px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 32px;
+    }
+    .hero-badge span { color: var(--green); font-weight: 600; }
+
+    .hero h1 {
+      font-size: clamp(40px, 8vw, 80px);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -2px;
+      margin-bottom: 24px;
+      max-width: 800px;
+    }
+
+    .hero h1 em {
+      font-style: normal;
+      background: linear-gradient(135deg, #fff 0%, #666 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      font-size: 18px;
+      color: var(--muted);
+      max-width: 520px;
+      margin-bottom: 40px;
+      line-height: 1.7;
+    }
+
+    .hero-btns {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn-primary {
+      padding: 14px 28px;
+      background: white;
+      color: black;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+    .btn-primary:hover { opacity: 0.85; }
+
+    .btn-secondary {
+      padding: 14px 28px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--subtle);
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { color: white; border-color: #555; }
+
+    /* ── STATS ── */
+    .stats {
+      display: flex;
+      justify-content: center;
+      gap: 64px;
+      padding: 48px 24px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .stat { text-align: center; }
+    .stat .num { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
+    .stat .lbl { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+    /* ── SECTIONS ── */
+    section {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 100px 24px;
+    }
+
+    .section-label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: clamp(28px, 5vw, 48px);
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1.1;
+      margin-bottom: 16px;
+    }
+
+    .section-sub {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 500px;
+      line-height: 1.7;
+    }
+
+    /* ── HOW IT WORKS ── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-top: 64px;
+    }
+
+    .step {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+    }
+
+    .step-num {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--subtle);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+
+    .step-icon { font-size: 36px; margin-bottom: 16px; }
+    .step h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .step p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ── FEATURES ── */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-top: 64px;
+    }
+
+    .feature {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+    }
+
+    .feature-icon { font-size: 28px; margin-bottom: 14px; }
+    .feature h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .feature p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ── PRICING ── */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-top: 64px;
+    }
+
+    .price-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+    }
+
+    .price-card.featured {
+      border-color: #333;
+      background: #111;
+    }
+
+    .price-card .price {
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin: 12px 0 4px;
+    }
+
+    .price-card .price-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+    .price-card h3 { font-size: 15px; font-weight: 600; color: var(--muted); }
+
+    .price-card ul {
+      list-style: none;
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .price-card ul li {
+      font-size: 14px;
+      color: #aaa;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .price-card ul li::before {
+      content: "✓";
+      color: var(--green);
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    /* ── FOR MERCHANTS CTA ── */
+    .merchant-cta {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 80px 48px;
+      text-align: center;
+      margin: 0 24px 100px;
+      max-width: 1100px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .merchant-cta h2 {
+      font-size: clamp(28px, 5vw, 48px);
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 16px;
+    }
+
+    .merchant-cta p {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 480px;
+      margin: 0 auto 36px;
+      line-height: 1.7;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    footer .logo { font-size: 16px; font-weight: 700; }
+    footer .links { display: flex; gap: 24px; font-size: 13px; color: var(--muted); }
+    footer .links a:hover { color: white; }
+    footer .copy { font-size: 12px; color: var(--muted); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      nav { padding: 16px 24px; }
+      .nav-links { display: none; }
+      .steps { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+      .pricing-grid { grid-template-columns: 1fr; }
+      .stats { gap: 32px; }
+      .merchant-cta { padding: 48px 24px; }
+      footer { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav-logo">FingerPay</div>
+    <div class="nav-links">
+      <a href="#how-it-works">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="/business/login">Sign in</a>
+    </div>
+    <a href="/business" class="nav-cta">Get Started</a>
+  </nav>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge">
+      <span>New</span> The future of checkout is here
+    </div>
+    <h1>Pay with your<br /><em>fingerprint</em></h1>
+    <p>FingerPay replaces cards and phones at checkout. One scan. Under 3 seconds. No friction.</p>
+    <div class="hero-btns">
+      <a href="/business" class="btn-primary">Start accepting payments</a>
+      <a href="#how-it-works" class="btn-secondary">See how it works</a>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat">
+      <div class="num">&lt; 3s</div>
+      <div class="lbl">Payment time</div>
+    </div>
+    <div class="stat">
+      <div class="num">0</div>
+      <div class="lbl">Cards needed</div>
+    </div>
+    <div class="stat">
+      <div class="num">256-bit</div>
+      <div class="lbl">Encryption</div>
+    </div>
+    <div class="stat">
+      <div class="num">$0</div>
+      <div class="lbl">Setup cost</div>
+    </div>
+  </div>
+
+  <!-- HOW IT WORKS -->
+  <section id="how-it-works">
+    <div class="section-label">How it works</div>
+    <div class="section-title">Three steps.<br />That's it.</div>
+    <div class="section-sub">The simplest checkout experience ever built. No cards, no phones, no PINs.</div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-icon">📱</div>
+        <h3>Enroll once</h3>
+        <p>Customer scans the QR code at the terminal, enters their card details privately on their own phone, then scans their finger. Takes 30 seconds.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-icon">👆</div>
+        <h3>Scan to pay</h3>
+        <p>Every visit after that — just place a finger on the scanner. FingerPay identifies who they are in under a second.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-icon">✅</div>
+        <h3>Payment done</h3>
+        <p>Stripe charges their card on file automatically. Money goes straight to your account. No card swipe, no phone tap, no PIN.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="features">
+    <div class="section-label">Features</div>
+    <div class="section-title">Built for real<br />businesses.</div>
+    <div class="section-sub">Everything you need to accept fingerprint payments out of the box.</div>
+
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">⚡</div>
+        <h3>Instant checkout</h3>
+        <p>Payments complete in under 3 seconds. Faster than tapping a card or unlocking a phone. Reduces queue time significantly.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔒</div>
+        <h3>Bank-level security</h3>
+        <p>Fingerprints are encrypted with AES-256-GCM and stored in a separate database. Raw fingerprint data never leaves your terminal.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">💳</div>
+        <h3>Powered by Stripe</h3>
+        <p>FingerPay is an authentication layer on top of Stripe. Your customers' cards are stored securely by Stripe — the world's most trusted payments infrastructure.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🏪</div>
+        <h3>Works with any POS</h3>
+        <p>FingerPay integrates with your existing POS system via a simple API call. The cashier hits one button and the terminal takes care of the rest.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">📊</div>
+        <h3>Merchant dashboard</h3>
+        <p>See all your transactions, earnings, and fees in one place. Know exactly what you're making and what you're paying.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🏦</div>
+        <h3>Automatic payouts</h3>
+        <p>Connect your bank account once and get paid automatically. No invoices, no chasing payments, no manual transfers.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRICING -->
+  <section id="pricing">
+    <div class="section-label">Pricing</div>
+    <div class="section-title">Simple, transparent<br />pricing.</div>
+    <div class="section-sub">No setup fees. No hidden costs. Only pay when you make money.</div>
+
+    <div class="pricing-grid">
+      <div class="price-card">
+        <h3>Monthly</h3>
+        <div class="price">$29</div>
+        <div class="price-sub">per terminal / month</div>
+        <ul>
+          <li>One terminal included</li>
+          <li>Unlimited enrollments</li>
+          <li>Merchant dashboard</li>
+          <li>Automatic payouts</li>
+          <li>Email support</li>
+        </ul>
+      </div>
+      <div class="price-card featured">
+        <h3>Per transaction</h3>
+        <div class="price">0.5%</div>
+        <div class="price-sub">+ $0.05 per scan</div>
+        <ul>
+          <li>Only on successful payments</li>
+          <li>Deducted automatically</li>
+          <li>No failed payment charges</li>
+          <li>Stripe fees separate (2.9% + 30¢)</li>
+          <li>Full transaction history</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- MERCHANT CTA -->
+  <div class="merchant-cta">
+    <h2>Ready to upgrade<br />your checkout?</h2>
+    <p>Sign up in minutes. No hardware needed to get started — test the full system from your browser.</p>
+    <a href="/business" class="btn-primary" style="font-size:16px; padding: 16px 36px;">Get started for free</a>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="logo">FingerPay</div>
+    <div class="links">
+      <a href="#how-it-works">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="/business">For Business</a>
+      <a href="/business/login">Sign in</a>
+    </div>
+    <div class="copy">© 2026 FingerPay. All rights reserved.</div>
+  </footer>
+
+</body>
+</html>

@@ -77,6 +77,11 @@ app.include_router(merchants_router)
 app.include_router(pos_router)
 
 
+@app.get("/")
+def home():
+    return RedirectResponse(url="/static/index.html")
+
+
 @app.get("/config")
 def get_config():
     """Returns public config for the frontend (Stripe publishable key)."""
