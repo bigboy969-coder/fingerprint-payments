@@ -109,7 +109,9 @@ def merchant_dashboard():
 
 
 @app.get("/business/reset-password")
-def merchant_reset_password():
+def merchant_reset_password(token: str = None):
+    if token:
+        return RedirectResponse(url=f"/static/merchant-reset-password.html?token={token}")
     return RedirectResponse(url="/static/merchant-reset-password.html")
 
 
