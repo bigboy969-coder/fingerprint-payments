@@ -221,6 +221,8 @@ def _send_reset_email(to_email: str, reset_url: str) -> None:
     smtp_pass = os.environ.get("SMTP_PASS", "")
     smtp_from = os.environ.get("SMTP_FROM", smtp_user)
 
+    logger.info("SMTP config: host=%s port=%s user=%s from=%s", smtp_host, smtp_port, smtp_user, smtp_from)
+
     if not smtp_host or not smtp_user or not smtp_pass:
         logger.warning("SMTP not configured — password reset email not sent to %s", to_email)
         return
@@ -248,6 +250,7 @@ If you did not request this, you can ignore this email — your password will no
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.sendmail(smtp_from, [to_email], msg.as_string())
+        logger.info("Reset email sent successfully to %s", to_email)
     except Exception as e:
         logger.error("Failed to send reset email to %s: %s", to_email, e)
 
