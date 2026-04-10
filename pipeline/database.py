@@ -1,139 +1,280 @@
 """
 FingerPay — Database Layer
 ===========================
-Handles all SQLite storage for users, fingerprints, and transactions.
+Handles all PostgreSQL storage for users, fingerprints, and transactions.
+Falls back to SQLite when DATABASE_URL is not set (local dev only).
 """
 
-import sqlite3
+import os
 from datetime import datetime
-from pathlib import Path
+from contextlib import contextmanager
 
 from pipeline.extractor import desc_to_blob, blob_to_desc, match_score, MATCH_THRESHOLD
 from utils.crypto import encrypt_descriptor, decrypt_descriptor
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-# ── Config ────────────────────────────────────────────────────────────────────
-import os as _os
-_DATA_DIR = Path(_os.environ.get("DATA_DIR", Path(__file__).parent.parent))
-_DATA_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH           = _DATA_DIR / "fingerpay.db"   # identity + payments
-BIOMETRIC_DB_PATH = _DATA_DIR / "biometric.db"   # fingerprints only
+# ── Connection ─────────────────────────────────────────────────────────────────
+if DATABASE_URL:
+    import psycopg2
+
+    @contextmanager
+    def _get_conn():
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = False
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _fetchone(cursor):
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        cols = [desc[0] for desc in cursor.description]
+        return dict(zip(cols, row))
+
+    def _fetchall(cursor):
+        cols = [desc[0] for desc in cursor.description]
+        return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+    PH = "%s"   # PostgreSQL placeholder
+
+else:
+    # ── SQLite fallback for local dev ─────────────────────────────────────────
+    import sqlite3
+    from pathlib import Path
+
+    _DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    DB_PATH = _DATA_DIR / "fingerpay.db"
+
+    @contextmanager
+    def _get_conn():
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _fetchone(cursor):
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def _fetchall(cursor):
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    PH = "?"    # SQLite placeholder
 
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 def init_db():
-    """Create tables and run safe schema migrations."""
+    with _get_conn() as conn:
+        c = conn.cursor()
 
-    # ── Identity + payments DB ────────────────────────────────────────────────
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
+        if DATABASE_URL:
+            # PostgreSQL
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id                        SERIAL PRIMARY KEY,
+                    full_name                 TEXT    NOT NULL,
+                    email                     TEXT    NOT NULL UNIQUE,
+                    phone                     TEXT,
+                    stripe_customer_id        TEXT,
+                    stripe_payment_method_id  TEXT,
+                    enrolled_at               TEXT    NOT NULL
+                )
+            """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id                        INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name                 TEXT    NOT NULL,
-            email                     TEXT    NOT NULL UNIQUE,
-            phone                     TEXT,
-            stripe_customer_id        TEXT,
-            stripe_payment_method_id  TEXT,
-            enrolled_at               TEXT    NOT NULL
-        )
-    """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS fingerprints (
+                    id          SERIAL PRIMARY KEY,
+                    user_id     INTEGER NOT NULL,
+                    descriptor  BYTEA   NOT NULL,
+                    enrolled_at TEXT    NOT NULL
+                )
+            """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS transactions (
-            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id                  INTEGER NOT NULL REFERENCES users(id),
-            amount                   REAL    NOT NULL,
-            merchant                 TEXT    NOT NULL,
-            stripe_payment_intent_id TEXT,
-            stripe_status            TEXT,
-            created_at               TEXT    NOT NULL
-        )
-    """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id                       SERIAL PRIMARY KEY,
+                    user_id                  INTEGER NOT NULL,
+                    amount                   REAL    NOT NULL,
+                    merchant                 TEXT    NOT NULL,
+                    stripe_payment_intent_id TEXT,
+                    stripe_status            TEXT,
+                    merchant_id              INTEGER,
+                    platform_fee             REAL    DEFAULT 0,
+                    balance_after            REAL    DEFAULT 0,
+                    created_at               TEXT    NOT NULL
+                )
+            """)
 
-    conn.commit()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS merchants (
+                    id                     SERIAL PRIMARY KEY,
+                    business_name          TEXT    NOT NULL,
+                    name                   TEXT    NOT NULL,
+                    email                  TEXT    NOT NULL UNIQUE,
+                    password_hash          TEXT    NOT NULL,
+                    api_key_hash           TEXT,
+                    stripe_connect_id      TEXT,
+                    stripe_connect_status  TEXT    DEFAULT 'pending',
+                    last_monthly_fee_month TEXT,
+                    is_active              INTEGER DEFAULT 1,
+                    created_at             TEXT    NOT NULL
+                )
+            """)
 
-    # Safe migrations for existing databases
-    _safe_add_column(c, "users", "stripe_customer_id", "TEXT")
-    _safe_add_column(c, "users", "stripe_payment_method_id", "TEXT")
-    _safe_add_column(c, "transactions", "stripe_payment_intent_id", "TEXT")
-    _safe_add_column(c, "transactions", "stripe_status", "TEXT")
-    _safe_add_column(c, "enrollment_sessions", "user_id", "INTEGER")
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS enrollment_sessions (
+                    session_id               TEXT    PRIMARY KEY,
+                    full_name                TEXT,
+                    email                    TEXT,
+                    phone                    TEXT,
+                    stripe_customer_id       TEXT,
+                    stripe_payment_method_id TEXT,
+                    user_id                  INTEGER,
+                    status                   TEXT    NOT NULL DEFAULT 'pending_form',
+                    created_at               TEXT    NOT NULL
+                )
+            """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS merchants (
-            id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-            business_name          TEXT    NOT NULL,
-            name                   TEXT    NOT NULL,
-            email                  TEXT    NOT NULL UNIQUE,
-            password_hash          TEXT    NOT NULL,
-            api_key_hash           TEXT,
-            stripe_connect_id      TEXT,
-            stripe_connect_status  TEXT    DEFAULT 'pending',
-            last_monthly_fee_month TEXT,
-            is_active              INTEGER DEFAULT 1,
-            created_at             TEXT    NOT NULL
-        )
-    """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    token       TEXT    PRIMARY KEY,
+                    merchant_id INTEGER NOT NULL,
+                    expires_at  TEXT    NOT NULL,
+                    used        INTEGER DEFAULT 0
+                )
+            """)
 
-    # Migrations for existing merchants table
-    _safe_add_column(c, "merchants", "business_name", "TEXT")
-    _safe_add_column(c, "merchants", "password_hash", "TEXT")
-    _safe_add_column(c, "merchants", "stripe_connect_id", "TEXT")
-    _safe_add_column(c, "merchants", "stripe_connect_status", "TEXT")
-    _safe_add_column(c, "merchants", "last_monthly_fee_month", "TEXT")
-    _safe_add_column(c, "merchants", "is_active", "INTEGER")
+        else:
+            # SQLite — original schema
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    full_name                 TEXT    NOT NULL,
+                    email                     TEXT    NOT NULL UNIQUE,
+                    phone                     TEXT,
+                    stripe_customer_id        TEXT,
+                    stripe_payment_method_id  TEXT,
+                    enrolled_at               TEXT    NOT NULL
+                )
+            """)
 
-    # Add merchant_id and platform_fee to transactions
-    _safe_add_column(c, "transactions", "merchant_id", "INTEGER")
-    _safe_add_column(c, "transactions", "platform_fee", "REAL")
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS fingerprints (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL,
+                    descriptor  BLOB    NOT NULL,
+                    enrolled_at TEXT    NOT NULL
+                )
+            """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS enrollment_sessions (
-            session_id               TEXT    PRIMARY KEY,
-            full_name                TEXT,
-            email                    TEXT,
-            phone                    TEXT,
-            stripe_customer_id       TEXT,
-            stripe_payment_method_id TEXT,
-            status                   TEXT    NOT NULL DEFAULT 'pending_form',
-            created_at               TEXT    NOT NULL
-        )
-    """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id                  INTEGER NOT NULL,
+                    amount                   REAL    NOT NULL,
+                    merchant                 TEXT    NOT NULL,
+                    stripe_payment_intent_id TEXT,
+                    stripe_status            TEXT,
+                    merchant_id              INTEGER,
+                    platform_fee             REAL    DEFAULT 0,
+                    balance_after            REAL    DEFAULT 0,
+                    created_at               TEXT    NOT NULL
+                )
+            """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS password_reset_tokens (
-            token       TEXT    PRIMARY KEY,
-            merchant_id INTEGER NOT NULL,
-            expires_at  TEXT    NOT NULL,
-            used        INTEGER DEFAULT 0
-        )
-    """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS merchants (
+                    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+                    business_name          TEXT    NOT NULL,
+                    name                   TEXT    NOT NULL,
+                    email                  TEXT    NOT NULL UNIQUE,
+                    password_hash          TEXT    NOT NULL,
+                    api_key_hash           TEXT,
+                    stripe_connect_id      TEXT,
+                    stripe_connect_status  TEXT    DEFAULT 'pending',
+                    last_monthly_fee_month TEXT,
+                    is_active              INTEGER DEFAULT 1,
+                    created_at             TEXT    NOT NULL
+                )
+            """)
 
-    conn.commit()
-    conn.close()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS enrollment_sessions (
+                    session_id               TEXT    PRIMARY KEY,
+                    full_name                TEXT,
+                    email                    TEXT,
+                    phone                    TEXT,
+                    stripe_customer_id       TEXT,
+                    stripe_payment_method_id TEXT,
+                    user_id                  INTEGER,
+                    status                   TEXT    NOT NULL DEFAULT 'pending_form',
+                    created_at               TEXT    NOT NULL
+                )
+            """)
 
-    # ── Biometric DB (separate file — encrypted fingerprints only) ────────────
-    bio_conn = sqlite3.connect(BIOMETRIC_DB_PATH)
-    bio_conn.execute("""
-        CREATE TABLE IF NOT EXISTS fingerprints (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     INTEGER NOT NULL,
-            descriptor  BLOB    NOT NULL,
-            enrolled_at TEXT    NOT NULL
-        )
-    """)
-    bio_conn.commit()
-    bio_conn.close()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    token       TEXT    PRIMARY KEY,
+                    merchant_id INTEGER NOT NULL,
+                    expires_at  TEXT    NOT NULL,
+                    used        INTEGER DEFAULT 0
+                )
+            """)
 
+            # Safe migrations
+            for col, typ in [
+                ("stripe_customer_id", "TEXT"),
+                ("stripe_payment_method_id", "TEXT"),
+            ]:
+                try:
+                    c.execute(f"ALTER TABLE users ADD COLUMN {col} {typ}")
+                except Exception:
+                    pass
 
-def _safe_add_column(cursor, table: str, column: str, col_type: str):
-    try:
-        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
+            for col, typ in [
+                ("stripe_payment_intent_id", "TEXT"),
+                ("stripe_status", "TEXT"),
+                ("merchant_id", "INTEGER"),
+                ("platform_fee", "REAL"),
+                ("balance_after", "REAL"),
+            ]:
+                try:
+                    c.execute(f"ALTER TABLE transactions ADD COLUMN {col} {typ}")
+                except Exception:
+                    pass
+
+            for col, typ in [
+                ("business_name", "TEXT"),
+                ("password_hash", "TEXT"),
+                ("stripe_connect_id", "TEXT"),
+                ("stripe_connect_status", "TEXT"),
+                ("last_monthly_fee_month", "TEXT"),
+                ("is_active", "INTEGER"),
+            ]:
+                try:
+                    c.execute(f"ALTER TABLE merchants ADD COLUMN {col} {typ}")
+                except Exception:
+                    pass
+
+            try:
+                c.execute("ALTER TABLE enrollment_sessions ADD COLUMN user_id INTEGER")
+            except Exception:
+                pass
 
 
 # ── Enroll ────────────────────────────────────────────────────────────────────
@@ -145,134 +286,103 @@ def enroll_user(
     stripe_customer_id: str,
     stripe_payment_method_id: str,
 ) -> dict:
-    """
-    Save a new user and their fingerprint to the database.
-    Returns the created user record.
-    """
     now = datetime.now().isoformat()
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
+    with _get_conn() as conn:
+        c = conn.cursor()
 
-    existing = c.execute(
-        "SELECT id FROM users WHERE email = ?", (email,)
-    ).fetchone()
+        c.execute(f"SELECT id FROM users WHERE email = {PH}", (email,))
+        if _fetchone(c):
+            raise ValueError(f"User with email {email} already enrolled.")
 
-    if existing:
-        conn.close()
-        raise ValueError(f"User with email {email} already enrolled.")
+        if DATABASE_URL:
+            c.execute("""
+                INSERT INTO users (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, enrolled_at)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+            """, (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, now))
+            user_id = c.fetchone()[0]
+        else:
+            c.execute("""
+                INSERT INTO users (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, enrolled_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, now))
+            user_id = c.lastrowid
 
-    c.execute("""
-        INSERT INTO users (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, enrolled_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, now))
+        encrypted = encrypt_descriptor(desc_to_blob(descriptor))
+        if DATABASE_URL:
+            c.execute(
+                "INSERT INTO fingerprints (user_id, descriptor, enrolled_at) VALUES (%s, %s, %s)",
+                (user_id, psycopg2.Binary(encrypted), now)
+            )
+        else:
+            c.execute(
+                "INSERT INTO fingerprints (user_id, descriptor, enrolled_at) VALUES (?, ?, ?)",
+                (user_id, encrypted, now)
+            )
 
-    user_id = c.lastrowid
-
-    bio_conn = sqlite3.connect(BIOMETRIC_DB_PATH)
-    bio_conn.execute("""
-        INSERT INTO fingerprints (user_id, descriptor, enrolled_at)
-        VALUES (?, ?, ?)
-    """, (user_id, encrypt_descriptor(desc_to_blob(descriptor)), now))
-    bio_conn.commit()
-    bio_conn.close()
-
-    conn.commit()
-
-    row = c.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    conn.close()
-
-    return _row_to_dict(row)
+        c.execute(f"SELECT * FROM users WHERE id = {PH}", (user_id,))
+        return _fetchone(c)
 
 
 # ── Find user by fingerprint ──────────────────────────────────────────────────
 def find_user_by_fingerprint(probe) -> dict:
-    """
-    Compare probe descriptor against all enrolled fingerprints.
-    Reads from biometric DB, then fetches identity from identity DB.
-    """
-    bio_conn = sqlite3.connect(BIOMETRIC_DB_PATH)
-    bio_conn.row_factory = sqlite3.Row
-    try:
-        rows = bio_conn.execute(
-            "SELECT user_id, descriptor FROM fingerprints"
-        ).fetchall()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT user_id, descriptor FROM fingerprints")
+        rows = _fetchall(c)
 
-        best_id = None
-        best_score = 0
+    best_id = None
+    best_score = 0
 
-        for row in rows:
-            score = match_score(probe, blob_to_desc(decrypt_descriptor(bytes(row["descriptor"]))))
-            if score > best_score:
-                best_score = score
-                best_id = row["user_id"]
+    for row in rows:
+        raw = bytes(row["descriptor"])
+        score = match_score(probe, blob_to_desc(decrypt_descriptor(raw)))
+        if score > best_score:
+            best_score = score
+            best_id = row["user_id"]
 
-        matched = best_score >= MATCH_THRESHOLD
-    finally:
-        bio_conn.close()
+    matched = best_score >= MATCH_THRESHOLD
 
     if matched and best_id:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        try:
-            row = conn.execute(
-                "SELECT * FROM users WHERE id = ?", (best_id,)
-            ).fetchone()
-            return {"matched": True, "score": best_score, "user": _row_to_dict(row)}
-        finally:
-            conn.close()
+        with _get_conn() as conn:
+            c = conn.cursor()
+            c.execute(f"SELECT * FROM users WHERE id = {PH}", (best_id,))
+            row = _fetchone(c)
+        return {"matched": True, "score": best_score, "user": row}
 
     return {"matched": False, "score": best_score, "user": None}
 
 
 # ── Check email ───────────────────────────────────────────────────────────────
 def check_email_exists(email: str) -> bool:
-    """Return True if a user with this email is already enrolled."""
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        row = conn.execute(
-            "SELECT id FROM users WHERE email = ?", (email,)
-        ).fetchone()
-        return row is not None
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT id FROM users WHERE email = {PH}", (email,))
+        return _fetchone(c) is not None
 
 
 # ── Get user by ID ────────────────────────────────────────────────────────────
 def get_user_by_id(user_id: int) -> dict:
-    """Fetch a single user record by ID. Raises ValueError if not found."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT * FROM users WHERE id = ?", (user_id,)
-        ).fetchone()
-        if row is None:
-            raise ValueError(f"User {user_id} not found.")
-        return _row_to_dict(row)
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT * FROM users WHERE id = {PH}", (user_id,))
+        row = _fetchone(c)
+    if row is None:
+        raise ValueError(f"User {user_id} not found.")
+    return row
 
 
 # ── Enrollment Sessions ───────────────────────────────────────────────────────
 def create_session(session_id: str) -> dict:
-    """Create a blank enrollment session for the kiosk QR code."""
     now = datetime.now().isoformat()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
             INSERT INTO enrollment_sessions (session_id, status, created_at)
-            VALUES (?, 'pending_form', ?)
+            VALUES ({PH}, 'pending_form', {PH})
         """, (session_id, now))
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM enrollment_sessions WHERE session_id = ?", (session_id,)
-        ).fetchone()
-        return dict(row)
-    finally:
-        conn.close()
+        c.execute(f"SELECT * FROM enrollment_sessions WHERE session_id = {PH}", (session_id,))
+        return _fetchone(c)
 
 
 def save_session_form(
@@ -283,53 +393,37 @@ def save_session_form(
     stripe_customer_id: str,
     stripe_payment_method_id: str,
 ) -> dict:
-    """Save customer form data to session after phone submission."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
             UPDATE enrollment_sessions
-            SET full_name=?, email=?, phone=?, stripe_customer_id=?,
-                stripe_payment_method_id=?, status='pending_scan'
-            WHERE session_id=?
+            SET full_name={PH}, email={PH}, phone={PH}, stripe_customer_id={PH},
+                stripe_payment_method_id={PH}, status='pending_scan'
+            WHERE session_id={PH}
         """, (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, session_id))
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM enrollment_sessions WHERE session_id = ?", (session_id,)
-        ).fetchone()
-        if row is None:
-            raise ValueError("Session not found.")
-        return dict(row)
-    finally:
-        conn.close()
+        c.execute(f"SELECT * FROM enrollment_sessions WHERE session_id = {PH}", (session_id,))
+        row = _fetchone(c)
+    if row is None:
+        raise ValueError("Session not found.")
+    return row
 
 
 def get_session(session_id: str) -> dict:
-    """Fetch a session by ID."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT * FROM enrollment_sessions WHERE session_id = ?", (session_id,)
-        ).fetchone()
-        if row is None:
-            raise ValueError("Session not found.")
-        return dict(row)
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT * FROM enrollment_sessions WHERE session_id = {PH}", (session_id,))
+        row = _fetchone(c)
+    if row is None:
+        raise ValueError("Session not found.")
+    return row
 
 
 def complete_session(session_id: str, user_id: int) -> None:
-    """Mark a session as complete after fingerprint scan, storing the enrolled user_id."""
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute(
-            "UPDATE enrollment_sessions SET status='complete', user_id=? WHERE session_id=?",
-            (user_id, session_id)
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
+            UPDATE enrollment_sessions SET status='complete', user_id={PH} WHERE session_id={PH}
+        """, (user_id, session_id))
 
 
 # ── Transactions ──────────────────────────────────────────────────────────────
@@ -342,200 +436,149 @@ def record_transaction(
     merchant_id: int = None,
     platform_fee: float = 0.0,
 ) -> dict:
-    """
-    Persist a completed Stripe transaction.
-    Returns the saved transaction record as a dict.
-    """
     now = datetime.now().isoformat()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("""
-            INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
-            VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
-        """, (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, merchant_id, platform_fee, now))
-        conn.commit()
-        tx_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        row = conn.execute(
-            "SELECT * FROM transactions WHERE id = ?", (tx_id,)
-        ).fetchone()
-        return dict(row)
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        if DATABASE_URL:
+            c.execute("""
+                INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
+                VALUES (%s, %s, %s, %s, %s, 0, %s, %s, %s) RETURNING id
+            """, (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, merchant_id, platform_fee, now))
+            tx_id = c.fetchone()[0]
+        else:
+            c.execute("""
+                INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+            """, (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, merchant_id, platform_fee, now))
+            tx_id = c.lastrowid
+        c.execute(f"SELECT * FROM transactions WHERE id = {PH}", (tx_id,))
+        return _fetchone(c)
 
 
 # ── Merchants ─────────────────────────────────────────────────────────────────
 def create_merchant(business_name: str, name: str, email: str, password_hash: str, api_key_hash: str) -> dict:
     now = datetime.now().isoformat()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
             INSERT INTO merchants (business_name, name, email, password_hash, api_key_hash, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH})
         """, (business_name, name, email, password_hash, api_key_hash, now))
-        conn.commit()
-        row = conn.execute("SELECT * FROM merchants WHERE email = ?", (email,)).fetchone()
-        return _row_to_dict(row)
-    finally:
-        conn.close()
+        c.execute(f"SELECT * FROM merchants WHERE email = {PH}", (email,))
+        return _fetchone(c)
 
 
 def get_merchant_by_email(email: str) -> dict | None:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute("SELECT * FROM merchants WHERE email = ?", (email,)).fetchone()
-        return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT * FROM merchants WHERE email = {PH}", (email,))
+        return _fetchone(c)
 
 
 def get_merchant_by_id(merchant_id: int) -> dict | None:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute("SELECT * FROM merchants WHERE id = ?", (merchant_id,)).fetchone()
-        return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT * FROM merchants WHERE id = {PH}", (merchant_id,))
+        return _fetchone(c)
 
 
 def get_merchant_by_api_key_hash(key_hash: str) -> dict | None:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute("SELECT * FROM merchants WHERE api_key_hash = ?", (key_hash,)).fetchone()
-        return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT * FROM merchants WHERE api_key_hash = {PH}", (key_hash,))
+        return _fetchone(c)
 
 
 def update_merchant_connect(merchant_id: int, stripe_connect_id: str, status: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute(
-            "UPDATE merchants SET stripe_connect_id=?, stripe_connect_status=? WHERE id=?",
-            (stripe_connect_id, status, merchant_id)
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
+            UPDATE merchants SET stripe_connect_id={PH}, stripe_connect_status={PH} WHERE id={PH}
+        """, (stripe_connect_id, status, merchant_id))
 
 
 def update_merchant_api_key(merchant_id: int, api_key_hash: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute("UPDATE merchants SET api_key_hash=? WHERE id=?", (api_key_hash, merchant_id))
-        conn.commit()
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"UPDATE merchants SET api_key_hash={PH} WHERE id={PH}", (api_key_hash, merchant_id))
 
 
 def update_merchant_monthly_fee_month(merchant_id: int, month: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute("UPDATE merchants SET last_monthly_fee_month=? WHERE id=?", (month, merchant_id))
-        conn.commit()
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"UPDATE merchants SET last_monthly_fee_month={PH} WHERE id={PH}", (month, merchant_id))
 
 
 def get_merchant_stats(merchant_id: int) -> dict:
-    """Returns this month's transaction count, total processed, and total fees."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
+    with _get_conn() as conn:
+        c = conn.cursor()
         current_month = datetime.now().strftime("%Y-%m")
-        row = conn.execute("""
-            SELECT
-                COUNT(*) as tx_count,
-                COALESCE(SUM(amount), 0) as total_processed,
-                COALESCE(SUM(platform_fee), 0) as total_fees
-            FROM transactions
-            WHERE merchant_id = ? AND strftime('%Y-%m', created_at) = ?
-        """, (merchant_id, current_month)).fetchone()
-        return dict(row) if row else {"tx_count": 0, "total_processed": 0.0, "total_fees": 0.0}
-    finally:
-        conn.close()
+        if DATABASE_URL:
+            c.execute("""
+                SELECT
+                    COUNT(*) as tx_count,
+                    COALESCE(SUM(amount), 0) as total_processed,
+                    COALESCE(SUM(platform_fee), 0) as total_fees
+                FROM transactions
+                WHERE merchant_id = %s AND LEFT(created_at, 7) = %s
+            """, (merchant_id, current_month))
+        else:
+            c.execute("""
+                SELECT
+                    COUNT(*) as tx_count,
+                    COALESCE(SUM(amount), 0) as total_processed,
+                    COALESCE(SUM(platform_fee), 0) as total_fees
+                FROM transactions
+                WHERE merchant_id = ? AND strftime('%Y-%m', created_at) = ?
+            """, (merchant_id, current_month))
+        row = _fetchone(c)
+        return row if row else {"tx_count": 0, "total_processed": 0.0, "total_fees": 0.0}
 
 
 def get_merchant_recent_transactions(merchant_id: int, limit: int = 10) -> list:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        rows = conn.execute("""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
             SELECT t.id, t.amount, t.platform_fee, t.stripe_status, t.created_at,
                    u.full_name as customer_name
             FROM transactions t
             LEFT JOIN users u ON t.user_id = u.id
-            WHERE t.merchant_id = ?
+            WHERE t.merchant_id = {PH}
             ORDER BY t.created_at DESC
-            LIMIT ?
-        """, (merchant_id, limit)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+            LIMIT {PH}
+        """, (merchant_id, limit))
+        return _fetchall(c)
 
 
 # ── Password Reset Tokens ─────────────────────────────────────────────────────
 def create_reset_token(merchant_id: int, token: str, expires_at: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        # Invalidate any existing unused tokens for this merchant
-        conn.execute(
-            "UPDATE password_reset_tokens SET used=1 WHERE merchant_id=? AND used=0",
-            (merchant_id,)
-        )
-        conn.execute(
-            "INSERT INTO password_reset_tokens (token, merchant_id, expires_at) VALUES (?, ?, ?)",
-            (token, merchant_id, expires_at)
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
+            UPDATE password_reset_tokens SET used=1 WHERE merchant_id={PH} AND used=0
+        """, (merchant_id,))
+        c.execute(f"""
+            INSERT INTO password_reset_tokens (token, merchant_id, expires_at) VALUES ({PH}, {PH}, {PH})
+        """, (token, merchant_id, expires_at))
 
 
 def get_reset_token(token: str) -> dict | None:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT * FROM password_reset_tokens WHERE token=? AND used=0",
-            (token,)
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT * FROM password_reset_tokens WHERE token={PH} AND used=0", (token,))
+        return _fetchone(c)
 
 
 def consume_reset_token(token: str, new_password_hash: str) -> bool:
-    """Mark token used and update the merchant's password atomically."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT * FROM password_reset_tokens WHERE token=? AND used=0",
-            (token,)
-        ).fetchone()
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT * FROM password_reset_tokens WHERE token={PH} AND used=0", (token,))
+        row = _fetchone(c)
         if not row:
             return False
-        now = datetime.now().isoformat()
+        now = datetime.utcnow().isoformat()
         if row["expires_at"] < now:
             return False
-        conn.execute(
-            "UPDATE password_reset_tokens SET used=1 WHERE token=?", (token,)
-        )
-        conn.execute(
-            "UPDATE merchants SET password_hash=? WHERE id=?",
-            (new_password_hash, row["merchant_id"])
-        )
-        conn.commit()
+        c.execute(f"UPDATE password_reset_tokens SET used=1 WHERE token={PH}", (token,))
+        c.execute(f"UPDATE merchants SET password_hash={PH} WHERE id={PH}", (new_password_hash, row["merchant_id"]))
         return True
-    finally:
-        conn.close()
-
-
-# ── Helper ────────────────────────────────────────────────────────────────────
-def _row_to_dict(row) -> dict:
-    return dict(row)
