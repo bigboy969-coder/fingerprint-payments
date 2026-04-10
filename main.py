@@ -108,6 +108,11 @@ def merchant_dashboard():
     return RedirectResponse(url="/static/merchant-dashboard.html")
 
 
+@app.get("/business/reset-password")
+def merchant_reset_password():
+    return RedirectResponse(url="/static/merchant-reset-password.html")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

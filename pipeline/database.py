@@ -103,6 +103,15 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            token       TEXT    PRIMARY KEY,
+            merchant_id INTEGER NOT NULL,
+            expires_at  TEXT    NOT NULL,
+            used        INTEGER DEFAULT 0
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -465,6 +474,64 @@ def get_merchant_recent_transactions(merchant_id: int, limit: int = 10) -> list:
             LIMIT ?
         """, (merchant_id, limit)).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ── Password Reset Tokens ─────────────────────────────────────────────────────
+def create_reset_token(merchant_id: int, token: str, expires_at: str) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        # Invalidate any existing unused tokens for this merchant
+        conn.execute(
+            "UPDATE password_reset_tokens SET used=1 WHERE merchant_id=? AND used=0",
+            (merchant_id,)
+        )
+        conn.execute(
+            "INSERT INTO password_reset_tokens (token, merchant_id, expires_at) VALUES (?, ?, ?)",
+            (token, merchant_id, expires_at)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_reset_token(token: str) -> dict | None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT * FROM password_reset_tokens WHERE token=? AND used=0",
+            (token,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def consume_reset_token(token: str, new_password_hash: str) -> bool:
+    """Mark token used and update the merchant's password atomically."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT * FROM password_reset_tokens WHERE token=? AND used=0",
+            (token,)
+        ).fetchone()
+        if not row:
+            return False
+        now = datetime.now().isoformat()
+        if row["expires_at"] < now:
+            return False
+        conn.execute(
+            "UPDATE password_reset_tokens SET used=1 WHERE token=?", (token,)
+        )
+        conn.execute(
+            "UPDATE merchants SET password_hash=? WHERE id=?",
+            (new_password_hash, row["merchant_id"])
+        )
+        conn.commit()
+        return True
     finally:
         conn.close()
 

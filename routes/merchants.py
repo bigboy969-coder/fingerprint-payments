@@ -9,8 +9,13 @@ GET  /merchants/connect/return - after Stripe Connect onboarding completes
 POST /merchants/regenerate-key - generate a new API key
 """
 
+import os
 import secrets
 import hashlib
+import smtplib
+import logging
+from datetime import datetime, timedelta
+from email.mime.text import MIMEText
 
 import bcrypt
 from fastapi import APIRouter, HTTPException, Header
@@ -26,6 +31,9 @@ from pipeline.database import (
     update_merchant_api_key,
     get_merchant_stats,
     get_merchant_recent_transactions,
+    create_reset_token,
+    get_reset_token,
+    consume_reset_token,
 )
 from utils.jwt import create_merchant_token, verify_merchant_token
 from utils.stripe_client import (
@@ -33,6 +41,8 @@ from utils.stripe_client import (
     create_onboarding_link,
     get_connect_account_status,
 )
+
+logger = logging.getLogger("fingerpay")
 
 router = APIRouter(prefix="/merchants")
 
@@ -201,6 +211,91 @@ async def regenerate_key(authorization: str = Header(...)):
         "api_key": new_key,
         "warning": "Save your new API key now — it will not be shown again.",
     }
+
+
+# ── Forgot / Reset Password ───────────────────────────────────────────────────
+def _send_reset_email(to_email: str, reset_url: str) -> None:
+    smtp_host = os.environ.get("SMTP_HOST", "")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
+
+    if not smtp_host or not smtp_user or not smtp_pass:
+        logger.warning("SMTP not configured — password reset email not sent to %s", to_email)
+        return
+
+    body = f"""Hello,
+
+Someone requested a password reset for your FingerPay merchant account.
+
+Click the link below to set a new password (valid for 1 hour):
+
+{reset_url}
+
+If you did not request this, you can ignore this email — your password will not change.
+
+— FingerPay
+"""
+    msg = MIMEText(body)
+    msg["Subject"] = "FingerPay — Reset your password"
+    msg["From"] = smtp_from
+    msg["To"] = to_email
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_from, [to_email], msg.as_string())
+    except Exception as e:
+        logger.error("Failed to send reset email to %s: %s", to_email, e)
+
+
+class ForgotPassword(BaseModel):
+    email: str
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPassword):
+    merchant = get_merchant_by_email(body.email)
+    # Always return success to avoid leaking which emails are registered
+    if merchant:
+        token = secrets.token_urlsafe(32)
+        expires_at = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+        create_reset_token(merchant["id"], token, expires_at)
+
+        base_url = os.environ.get("APP_BASE_URL", "https://fingerprint-payments.onrender.com")
+        reset_url = f"{base_url}/business/reset-password?token={token}"
+        _send_reset_email(merchant["email"], reset_url)
+
+    return {"success": True, "message": "If that email is registered, a reset link has been sent."}
+
+
+class ResetPassword(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPassword):
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+
+    record = get_reset_token(body.token)
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+
+    from datetime import datetime
+    if record["expires_at"] < datetime.utcnow().isoformat():
+        raise HTTPException(status_code=400, detail="Reset link has expired.")
+
+    new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    ok = consume_reset_token(body.token, new_hash)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+
+    return {"success": True, "message": "Password updated. You can now sign in."}
 
 
 # ── Legacy register (kept for backwards compatibility) ────────────────────────
