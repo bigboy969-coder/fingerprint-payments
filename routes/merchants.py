@@ -14,6 +14,7 @@ import secrets
 import hashlib
 import smtplib
 import logging
+import threading
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 
@@ -270,7 +271,7 @@ async def forgot_password(body: ForgotPassword):
 
         base_url = os.environ.get("APP_BASE_URL", "https://fingerprint-payments.onrender.com")
         reset_url = f"{base_url}/business/reset-password?token={token}"
-        _send_reset_email(merchant["email"], reset_url)
+        threading.Thread(target=_send_reset_email, args=(merchant["email"], reset_url), daemon=True).start()
 
     return {"success": True, "message": "If that email is registered, a reset link has been sent."}
 
