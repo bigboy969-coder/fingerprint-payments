@@ -12,11 +12,9 @@ POST /merchants/regenerate-key - generate a new API key
 import os
 import secrets
 import hashlib
-import smtplib
 import logging
 import threading
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText
 
 import bcrypt
 from fastapi import APIRouter, HTTPException, Header
@@ -216,19 +214,19 @@ async def regenerate_key(authorization: str = Header(...)):
 
 # ── Forgot / Reset Password ───────────────────────────────────────────────────
 def _send_reset_email(to_email: str, reset_url: str) -> None:
-    smtp_host = os.environ.get("SMTP_HOST", "")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_pass = os.environ.get("SMTP_PASS", "")
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
-
-    logger.info("SMTP config: host=%s port=%s user=%s from=%s", smtp_host, smtp_port, smtp_user, smtp_from)
-
-    if not smtp_host or not smtp_user or not smtp_pass:
-        logger.warning("SMTP not configured — password reset email not sent to %s", to_email)
+    api_key = os.environ.get("RESEND_API_KEY", "")
+    if not api_key:
+        logger.warning("RESEND_API_KEY not set — reset email not sent to %s", to_email)
         return
 
-    body = f"""Hello,
+    try:
+        import resend
+        resend.api_key = api_key
+        resend.Emails.send({
+            "from": "FingerPay <onboarding@resend.dev>",
+            "to": to_email,
+            "subject": "FingerPay — Reset your password",
+            "text": f"""Hello,
 
 Someone requested a password reset for your FingerPay merchant account.
 
@@ -239,18 +237,8 @@ Click the link below to set a new password (valid for 1 hour):
 If you did not request this, you can ignore this email — your password will not change.
 
 — FingerPay
-"""
-    msg = MIMEText(body)
-    msg["Subject"] = "FingerPay — Reset your password"
-    msg["From"] = smtp_from
-    msg["To"] = to_email
-
-    try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_from, [to_email], msg.as_string())
+""",
+        })
         logger.info("Reset email sent successfully to %s", to_email)
     except Exception as e:
         logger.error("Failed to send reset email to %s: %s", to_email, e)
