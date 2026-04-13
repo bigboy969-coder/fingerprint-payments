@@ -63,8 +63,10 @@ class RequestAccess(BaseModel):
 
 @router.post("/request-access")
 async def request_access(body: RequestAccess):
+    exists = check_email_exists(body.email)
+    logger.info("Customer access request for %s — found: %s", body.email, exists)
     # Always return success to avoid leaking which emails are enrolled
-    if check_email_exists(body.email):
+    if exists:
         from datetime import datetime, timedelta
         code = str(random.randint(100000, 999999))
         expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
