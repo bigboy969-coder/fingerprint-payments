@@ -23,6 +23,7 @@ from routes.authenticate import router as authenticate_router
 from routes.pay import router as pay_router
 from routes.merchants import router as merchants_router
 from routes.pos import router as pos_router
+from routes.customers import router as customers_router
 
 # ── Logging (no sensitive data) ───────────────────────────────────────────────
 logging.basicConfig(
@@ -75,6 +76,7 @@ app.include_router(authenticate_router)
 app.include_router(pay_router)
 app.include_router(merchants_router)
 app.include_router(pos_router)
+app.include_router(customers_router)
 
 
 @app.get("/")
@@ -113,6 +115,11 @@ def merchant_reset_password(token: str = None):
     if token:
         return RedirectResponse(url=f"/static/merchant-reset-password.html?token={token}")
     return RedirectResponse(url="/static/merchant-reset-password.html")
+
+
+@app.get("/my-account")
+def customer_portal():
+    return RedirectResponse(url="/static/customer-portal.html")
 
 
 if __name__ == "__main__":

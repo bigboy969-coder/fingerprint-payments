@@ -159,6 +159,16 @@ def init_db():
                 )
             """)
 
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS customer_verification_codes (
+                    id          SERIAL PRIMARY KEY,
+                    email       TEXT    NOT NULL,
+                    code        TEXT    NOT NULL,
+                    expires_at  TEXT    NOT NULL,
+                    used        INTEGER DEFAULT 0
+                )
+            """)
+
         else:
             # SQLite — original schema
             c.execute("""
@@ -231,6 +241,16 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS password_reset_tokens (
                     token       TEXT    PRIMARY KEY,
                     merchant_id INTEGER NOT NULL,
+                    expires_at  TEXT    NOT NULL,
+                    used        INTEGER DEFAULT 0
+                )
+            """)
+
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS customer_verification_codes (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email       TEXT    NOT NULL,
+                    code        TEXT    NOT NULL,
                     expires_at  TEXT    NOT NULL,
                     used        INTEGER DEFAULT 0
                 )
@@ -567,6 +587,48 @@ def get_reset_token(token: str) -> dict | None:
         c = conn.cursor()
         c.execute(f"SELECT * FROM password_reset_tokens WHERE token={PH} AND used=0", (token,))
         return _fetchone(c)
+
+
+# ── Customer Verification Codes ───────────────────────────────────────────────
+def create_customer_verification_code(email: str, code: str, expires_at: str) -> None:
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"UPDATE customer_verification_codes SET used=1 WHERE email={PH} AND used=0", (email,))
+        c.execute(f"""
+            INSERT INTO customer_verification_codes (email, code, expires_at)
+            VALUES ({PH}, {PH}, {PH})
+        """, (email, code, expires_at))
+
+
+def verify_customer_code(email: str, code: str) -> bool:
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
+            SELECT * FROM customer_verification_codes
+            WHERE email={PH} AND code={PH} AND used=0
+        """, (email, code))
+        row = _fetchone(c)
+        if not row:
+            return False
+        if row["expires_at"] < datetime.utcnow().isoformat():
+            return False
+        c.execute(f"UPDATE customer_verification_codes SET used=1 WHERE email={PH} AND code={PH}", (email, code))
+        return True
+
+
+def delete_customer_by_email(email: str) -> bool:
+    """Delete all customer data — user record, fingerprint, and transactions."""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT id, stripe_customer_id FROM users WHERE email={PH}", (email,))
+        user = _fetchone(c)
+        if not user:
+            return False
+        user_id = user["id"]
+        c.execute(f"DELETE FROM fingerprints WHERE user_id={PH}", (user_id,))
+        c.execute(f"DELETE FROM transactions WHERE user_id={PH}", (user_id,))
+        c.execute(f"DELETE FROM users WHERE id={PH}", (user_id,))
+        return True
 
 
 def consume_reset_token(token: str, new_password_hash: str) -> bool:
