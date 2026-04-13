@@ -623,7 +623,7 @@ def create_customer_verification_code(email: str, code: str, expires_at: str) ->
         """, (email, code, expires_at))
 
 
-def verify_customer_code(email: str, code: str) -> bool:
+def verify_customer_code(email: str, code: str, consume: bool = False) -> bool:
     with _get_conn() as conn:
         c = conn.cursor()
         c.execute(f"""
@@ -635,7 +635,8 @@ def verify_customer_code(email: str, code: str) -> bool:
             return False
         if row["expires_at"] < datetime.utcnow().isoformat():
             return False
-        c.execute(f"UPDATE customer_verification_codes SET used=1 WHERE email={PH} AND code={PH}", (email, code))
+        if consume:
+            c.execute(f"UPDATE customer_verification_codes SET used=1 WHERE email={PH} AND code={PH}", (email, code))
         return True
 
 

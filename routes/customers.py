@@ -119,7 +119,7 @@ class DeleteAccount(BaseModel):
 
 @router.delete("/delete-account")
 async def delete_account(body: DeleteAccount):
-    ok = verify_customer_code(body.email, body.code)
+    ok = verify_customer_code(body.email, body.code, consume=True)
     if not ok:
         raise HTTPException(status_code=400, detail="Invalid or expired verification code.")
 
