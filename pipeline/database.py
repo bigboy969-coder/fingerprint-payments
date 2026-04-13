@@ -555,6 +555,29 @@ def get_merchant_stats(merchant_id: int) -> dict:
         return row if row else {"tx_count": 0, "total_processed": 0.0, "total_fees": 0.0}
 
 
+def get_merchant_customers(merchant_id: int) -> list:
+    """Return distinct customers who have transacted with this merchant."""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"""
+            SELECT
+                u.id,
+                u.full_name,
+                u.email,
+                u.phone,
+                u.enrolled_at,
+                COUNT(t.id)   as total_transactions,
+                COALESCE(SUM(t.amount), 0) as total_spent,
+                MAX(t.created_at) as last_transaction
+            FROM transactions t
+            JOIN users u ON t.user_id = u.id
+            WHERE t.merchant_id = {PH}
+            GROUP BY u.id, u.full_name, u.email, u.phone, u.enrolled_at
+            ORDER BY last_transaction DESC
+        """, (merchant_id,))
+        return _fetchall(c)
+
+
 def get_merchant_recent_transactions(merchant_id: int, limit: int = 10) -> list:
     with _get_conn() as conn:
         c = conn.cursor()

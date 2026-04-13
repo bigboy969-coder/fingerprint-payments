@@ -30,6 +30,7 @@ from pipeline.database import (
     update_merchant_api_key,
     get_merchant_stats,
     get_merchant_recent_transactions,
+    get_merchant_customers,
     create_reset_token,
     get_reset_token,
     consume_reset_token,
@@ -143,6 +144,14 @@ async def dashboard(authorization: str = Header(...)):
         "stats": stats,
         "recent_transactions": recent,
     }
+
+
+# ── Customers ─────────────────────────────────────────────────────────────────
+@router.get("/customers")
+async def merchant_customers(authorization: str = Header(...)):
+    merchant = _get_merchant_from_token(authorization)
+    customers = get_merchant_customers(merchant["id"])
+    return {"customers": customers}
 
 
 # ── Stripe Connect ────────────────────────────────────────────────────────────
