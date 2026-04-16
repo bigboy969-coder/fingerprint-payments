@@ -295,14 +295,22 @@
   </div>
 
   <script>
-    const token = localStorage.getItem("merchant_token");
-    if (!token) window.location.href = "/business/login";
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
 
-    const headers = { "Authorization": `Bearer ${token}` };
+    // Auth is via HttpOnly cookie — no localStorage, no Authorization header needed.
+    // The cookie is sent automatically by the browser on same-origin requests.
 
     async function loadDashboard() {
       try {
-        const res = await fetch("/merchants/me", { headers });
+        const res = await fetch("/merchants/me");
         if (res.status === 401) { logout(); return; }
         const data = await res.json();
 
@@ -346,11 +354,11 @@
               <tbody>
                 ${data.recent_transactions.map(tx => `
                   <tr>
-                    <td>${tx.customer_name || "—"}</td>
+                    <td>${escapeHtml(tx.customer_name) || "—"}</td>
                     <td class="amount">$${Number(tx.amount).toFixed(2)}</td>
                     <td class="fee">$${Number(tx.platform_fee || 0).toFixed(2)}</td>
                     <td class="${tx.stripe_status === 'succeeded' ? 'status-ok' : 'status-fail'}">
-                      ${tx.stripe_status === 'succeeded' ? 'Paid' : tx.stripe_status}
+                      ${escapeHtml(tx.stripe_status === 'succeeded' ? 'Paid' : tx.stripe_status)}
                     </td>
                     <td class="date">${new Date(tx.created_at).toLocaleDateString()}</td>
                   </tr>
@@ -371,7 +379,7 @@
       btn.textContent = "Loading...";
 
       try {
-        const res = await fetch("/merchants/connect", { method: "POST", headers });
+        const res = await fetch("/merchants/connect", { method: "POST" });
         const data = await res.json();
         if (res.ok) {
           window.location.href = data.onboarding_url;
@@ -390,7 +398,7 @@
     async function regenKey() {
       if (!confirm("Are you sure? Your current API key will stop working immediately.")) return;
 
-      const res = await fetch("/merchants/regenerate-key", { method: "POST", headers });
+      const res = await fetch("/merchants/regenerate-key", { method: "POST" });
       const data = await res.json();
       if (res.ok) {
         document.getElementById("new-key-value").textContent = data.api_key;
@@ -418,14 +426,14 @@
       loadDashboard();
     }
 
-    function logout() {
-      localStorage.removeItem("merchant_token");
+    async function logout() {
+      await fetch("/merchants/logout", { method: "POST" });
       window.location.href = "/business/login";
     }
 
     async function loadCustomers() {
       try {
-        const res = await fetch("/merchants/customers", { headers });
+        const res = await fetch("/merchants/customers");
         if (!res.ok) return;
         const data = await res.json();
         const el = document.getElementById("customer-list");
@@ -448,8 +456,8 @@
             <tbody>
               ${data.customers.map(c => `
                 <tr>
-                  <td>${c.full_name}</td>
-                  <td style="color:#666;font-size:13px;">${c.email}</td>
+                  <td>${escapeHtml(c.full_name)}</td>
+                  <td style="color:#666;font-size:13px;">${escapeHtml(c.email)}</td>
                   <td>${c.total_transactions}</td>
                   <td class="amount">$${Number(c.total_spent).toFixed(2)}</td>
                   <td class="date">${new Date(c.enrolled_at).toLocaleDateString()}</td>

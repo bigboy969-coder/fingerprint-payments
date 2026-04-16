@@ -157,7 +157,7 @@
           return;
         }
 
-        localStorage.setItem("merchant_token", data.token);
+        // Token is now set as an HttpOnly cookie by the server response.
         window.location.href = "/business/dashboard";
 
       } catch (e) {

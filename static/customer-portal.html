@@ -160,6 +160,16 @@
   </div>
 
   <script>
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
     let verifiedEmail = "";
     let verifiedCode  = "";
 
@@ -253,15 +263,15 @@
       document.getElementById("account-info").innerHTML = `
         <div class="info-row">
           <span class="label">Name</span>
-          <span class="value">${customer.full_name}</span>
+          <span class="value">${escapeHtml(customer.full_name)}</span>
         </div>
         <div class="info-row">
           <span class="label">Email</span>
-          <span class="value">${customer.email}</span>
+          <span class="value">${escapeHtml(customer.email)}</span>
         </div>
         <div class="info-row">
           <span class="label">Phone</span>
-          <span class="value">${customer.phone || "—"}</span>
+          <span class="value">${escapeHtml(customer.phone) || "—"}</span>
         </div>
         <div class="info-row">
           <span class="label">Enrolled</span>

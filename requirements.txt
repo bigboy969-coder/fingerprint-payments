@@ -1,13 +1,20 @@
-fastapi
-uvicorn[standard]
-python-multipart
-opencv-python-headless
-numpy
-python-jose[cryptography]
-stripe
-python-dotenv
-aiofiles
-slowapi
-bcrypt
-psycopg2-binary
-resend
+# FingerPay — Runtime Dependencies
+# Pinned to compatible-release (~=) for reproducible builds.
+# Update with: pip install --upgrade <pkg> && update this file.
+
+fastapi~=0.136.0
+uvicorn[standard]~=0.42.0
+python-multipart~=0.0.22
+opencv-python-headless~=4.13.0
+numpy~=2.4.3
+python-jose[cryptography]~=3.5.0
+stripe~=15.0.1
+python-dotenv~=1.2.2
+aiofiles~=25.1.0
+slowapi~=0.1.9
+bcrypt~=5.0.0
+psycopg2-binary~=2.9.10
+resend~=2.7.0
+cryptography~=46.0.5
+alembic~=1.16.1
+structlog~=25.4.0
