@@ -4,7 +4,7 @@ FingerPay — JWT Utility
 Creates and verifies short-lived access tokens.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from jose import JWTError, jwt
 
@@ -20,7 +20,7 @@ def create_access_token(user_id: int, merchant_id: int = None) -> str:
     Token expires in TOKEN_TTL_MINUTES minutes.
     Optionally includes merchant_id so pay.py knows which merchant to pay out.
     """
-    expire = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_TTL_MINUTES)
+    expire = datetime.now(UTC) + timedelta(minutes=TOKEN_TTL_MINUTES)
     payload = {
         "user_id": user_id,
         "exp": expire,
@@ -33,7 +33,7 @@ def create_access_token(user_id: int, merchant_id: int = None) -> str:
 
 def create_merchant_token(merchant_id: int) -> str:
     """Issue a long-lived JWT for a merchant dashboard session (24 hours)."""
-    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    expire = datetime.now(UTC) + timedelta(hours=24)
     payload = {
         "merchant_id": merchant_id,
         "exp": expire,

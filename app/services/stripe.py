@@ -5,6 +5,7 @@ Wraps Stripe API calls for customer creation and payment processing.
 """
 
 import uuid
+
 import stripe
 
 from app.config import STRIPE_SECRET_KEY
@@ -39,9 +40,9 @@ def create_customer(full_name: str, email: str, payment_method_id: str) -> str:
     return customer.id
 
 
-TRANSACTION_RATE = 0.005   # 0.5% per transaction
-SCAN_FEE        = 0.05    # $0.05 per scan
-MONTHLY_FEE     = 29.00   # $29/month per terminal (billed separately, not per-transaction)
+TRANSACTION_RATE = 0.005  # 0.5% per transaction
+SCAN_FEE = 0.05  # $0.05 per scan
+MONTHLY_FEE = 29.00  # $29/month per terminal (billed separately, not per-transaction)
 
 
 def calculate_platform_fee(amount_usd: float) -> float:

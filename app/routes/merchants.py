@@ -12,12 +12,12 @@ POST /merchants/forgot-password
 POST /merchants/reset-password
 """
 
-import secrets
 import logging
-from datetime import datetime, timedelta, timezone
+import secrets
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from slowapi import Limiter
@@ -27,26 +27,26 @@ limiter = Limiter(key_func=get_remote_address)
 
 from app.config import APP_BASE_URL
 from app.db import (
+    consume_reset_token,
     create_merchant,
+    create_reset_token,
     get_merchant_by_email,
+    get_merchant_customers,
+    get_merchant_recent_transactions,
+    get_merchant_stats,
+    get_reset_token,
+    update_merchant_api_key,
     update_merchant_connect,
     update_merchant_connect_status_by_account,
-    update_merchant_api_key,
-    get_merchant_stats,
-    get_merchant_recent_transactions,
-    get_merchant_customers,
-    create_reset_token,
-    get_reset_token,
-    consume_reset_token,
 )
+from app.routes.deps import get_merchant_from_token, hash_api_key
+from app.services.email import send_reset_email
 from app.services.jwt import create_merchant_token
 from app.services.stripe import (
     create_connect_account,
     create_onboarding_link,
     get_connect_account_status,
 )
-from app.services.email import send_reset_email
-from app.routes.deps import hash_api_key, get_merchant_from_token
 
 logger = logging.getLogger("fingerpay.merchants")
 
@@ -54,6 +54,7 @@ router = APIRouter(prefix="/merchants")
 
 
 # ── Signup ────────────────────────────────────────────────────────────────────
+
 
 class MerchantSignup(BaseModel):
     business_name: str
@@ -82,11 +83,13 @@ async def signup(request: Request, body: MerchantSignup):
 
     token = create_merchant_token(merchant["id"])
 
-    response = JSONResponse(content={
-        "success": True,
-        "api_key": api_key,
-        "warning": "Save your API key now — it will not be shown again.",
-    })
+    response = JSONResponse(
+        content={
+            "success": True,
+            "api_key": api_key,
+            "warning": "Save your API key now — it will not be shown again.",
+        }
+    )
     response.set_cookie(
         key="merchant_token",
         value=token,
@@ -100,6 +103,7 @@ async def signup(request: Request, body: MerchantSignup):
 
 
 # ── Login ─────────────────────────────────────────────────────────────────────
+
 
 class MerchantLogin(BaseModel):
     email: str
@@ -133,6 +137,7 @@ async def login(request: Request, body: MerchantLogin):
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
+
 @router.get("/me")
 async def dashboard(request: Request, authorization: str = Header(None)):
     merchant = get_merchant_from_token(authorization, request)
@@ -164,6 +169,7 @@ async def dashboard(request: Request, authorization: str = Header(None)):
 
 # ── Customers ─────────────────────────────────────────────────────────────────
 
+
 @router.get("/customers")
 async def merchant_customers(request: Request, authorization: str = Header(None)):
     merchant = get_merchant_from_token(authorization, request)
@@ -172,6 +178,7 @@ async def merchant_customers(request: Request, authorization: str = Header(None)
 
 
 # ── Stripe Connect ────────────────────────────────────────────────────────────
+
 
 @router.post("/connect")
 async def start_connect(request: Request, authorization: str = Header(None)):
@@ -217,6 +224,7 @@ async def connect_return(account: str = None):
 
 # ── Regenerate API key ────────────────────────────────────────────────────────
 
+
 @router.post("/regenerate-key")
 async def regenerate_key(request: Request, authorization: str = Header(None)):
     merchant = get_merchant_from_token(authorization, request)
@@ -234,6 +242,7 @@ async def regenerate_key(request: Request, authorization: str = Header(None)):
 
 # ── Forgot / Reset Password ──────────────────────────────────────────────────
 
+
 class ForgotPassword(BaseModel):
     email: str
 
@@ -244,7 +253,7 @@ async def forgot_password(request: Request, body: ForgotPassword, bg: Background
     merchant = get_merchant_by_email(body.email)
     if merchant:
         token = secrets.token_urlsafe(32)
-        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        expires_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         create_reset_token(merchant["id"], token, expires_at)
 
         reset_url = f"{APP_BASE_URL}/business/reset-password?token={token}"
@@ -267,7 +276,7 @@ async def reset_password(body: ResetPassword):
     if not record:
         raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
 
-    if record["expires_at"] < datetime.now(timezone.utc).isoformat():
+    if record["expires_at"] < datetime.now(UTC).isoformat():
         raise HTTPException(status_code=400, detail="Reset link has expired.")
 
     new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
@@ -280,6 +289,7 @@ async def reset_password(body: ResetPassword):
 
 # ── Logout ────────────────────────────────────────────────────────────────────
 
+
 @router.post("/logout")
 async def logout():
     response = JSONResponse(content={"success": True})
@@ -288,6 +298,7 @@ async def logout():
 
 
 # ── Legacy ────────────────────────────────────────────────────────────────────
+
 
 class MerchantRegister(BaseModel):
     name: str
@@ -298,6 +309,5 @@ class MerchantRegister(BaseModel):
 async def register_merchant(body: MerchantRegister):
     """Legacy endpoint — use /merchants/signup instead."""
     raise HTTPException(
-        status_code=410,
-        detail="This endpoint is deprecated. Use POST /merchants/signup instead."
+        status_code=410, detail="This endpoint is deprecated. Use POST /merchants/signup instead."
     )

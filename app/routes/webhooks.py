@@ -14,11 +14,11 @@ Events handled:
 import logging
 
 import stripe
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
-from app.config import STRIPE_WEBHOOK_SECRET, STRIPE_SECRET_KEY
+from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 from app.db import update_merchant_connect_status_by_account
-from app.db.connection import _get_conn, PH
+from app.db.connection import PH, _get_conn
 
 logger = logging.getLogger("fingerpay.webhooks")
 router = APIRouter()
@@ -37,9 +37,7 @@ async def stripe_webhook(request: Request):
     sig_header = request.headers.get("stripe-signature", "")
 
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid payload.")
     except stripe.error.SignatureVerificationError:

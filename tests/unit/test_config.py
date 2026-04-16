@@ -15,6 +15,7 @@ class TestValidateEnv:
 
         # Reimport to pick up new env
         import app.config as cfg
+
         importlib.reload(cfg)
 
         with pytest.raises(RuntimeError, match="FINGERPAY_SECRET"):
@@ -27,6 +28,7 @@ class TestValidateEnv:
         monkeypatch.setenv("STRIPE_PUBLISHABLE_KEY", "pk_test")
 
         import app.config as cfg
+
         importlib.reload(cfg)
 
         with pytest.raises(RuntimeError, match="BIOMETRIC_ENCRYPTION_KEY"):
@@ -39,6 +41,7 @@ class TestValidateEnv:
         monkeypatch.setenv("STRIPE_PUBLISHABLE_KEY", "pk_test")
 
         import app.config as cfg
+
         importlib.reload(cfg)
 
         with pytest.raises(RuntimeError, match="STRIPE_SECRET_KEY"):
@@ -51,6 +54,7 @@ class TestValidateEnv:
         monkeypatch.setenv("STRIPE_PUBLISHABLE_KEY", "")
 
         import app.config as cfg
+
         importlib.reload(cfg)
 
         with pytest.raises(RuntimeError, match="STRIPE_PUBLISHABLE_KEY"):
@@ -63,9 +67,13 @@ class TestValidateEnv:
         monkeypatch.setenv("STRIPE_PUBLISHABLE_KEY", "")
 
         import app.config as cfg
+
         importlib.reload(cfg)
 
-        with pytest.raises(RuntimeError, match="FINGERPAY_SECRET.*BIOMETRIC_ENCRYPTION_KEY.*STRIPE_SECRET_KEY.*STRIPE_PUBLISHABLE_KEY"):
+        with pytest.raises(
+            RuntimeError,
+            match="FINGERPAY_SECRET.*BIOMETRIC_ENCRYPTION_KEY.*STRIPE_SECRET_KEY.*STRIPE_PUBLISHABLE_KEY",
+        ):
             cfg.validate_env()
 
     def test_passes_when_all_set(self, monkeypatch):
@@ -75,6 +83,7 @@ class TestValidateEnv:
         monkeypatch.setenv("STRIPE_PUBLISHABLE_KEY", "pk_test")
 
         import app.config as cfg
+
         importlib.reload(cfg)
 
         # Should not raise
@@ -86,13 +95,15 @@ class TestConfigDefaults:
         """The old code had SECRET_KEY defaulting to 'dev-secret-change-in-prod'.
         Config must default to empty string, which validate_env will catch."""
         import app.config as cfg
+
         # If the env var is unset, should be empty, not a hardcoded secret
         original = os.environ.get("FINGERPAY_SECRET", "")
         if not original:
-            assert cfg.FINGERPAY_SECRET == "" or cfg.FINGERPAY_SECRET == original
+            assert cfg.FINGERPAY_SECRET == "" or original == cfg.FINGERPAY_SECRET
 
     def test_app_base_url_has_safe_default(self):
         import app.config as cfg
+
         # Default should be localhost for dev, not a production URL
         if not os.environ.get("APP_BASE_URL"):
             assert "localhost" in cfg.APP_BASE_URL

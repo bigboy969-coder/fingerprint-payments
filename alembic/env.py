@@ -7,10 +7,11 @@ Falls back to SQLite for local development.
 import os
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
+
 from alembic import context
 
-from dotenv import load_dotenv
 load_dotenv()
 
 config = context.config

@@ -5,8 +5,6 @@ Shared fixtures for all tests. See docs/TESTING.md for the full strategy.
 """
 
 import os
-import shutil
-import tempfile
 
 import pytest
 
@@ -20,8 +18,8 @@ os.environ.setdefault("APP_BASE_URL", "http://localhost:8000")
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from fastapi.testclient import TestClient
 
+from fastapi.testclient import TestClient
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 IMAGES_DIR = FIXTURES_DIR / "images"
@@ -41,12 +39,14 @@ def client(tmp_path):
     with patch("app.db.connection.DB_PATH", db_path):
         from app.db.schema import init_db
         from app.main import app, limiter
+
         init_db()
         # Disable ALL rate limiters in tests
         limiter.enabled = False
-        from app.routes import merchants as merchants_mod
-        from app.routes import customers as customers_mod
         from app.routes import authenticate as auth_mod
+        from app.routes import customers as customers_mod
+        from app.routes import merchants as merchants_mod
+
         merchants_mod.limiter.enabled = False
         customers_mod.limiter.enabled = False
         auth_mod.limiter.enabled = False

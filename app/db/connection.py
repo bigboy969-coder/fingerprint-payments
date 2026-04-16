@@ -9,7 +9,6 @@ from contextlib import contextmanager
 
 from app.config import DATABASE_URL
 
-
 # ── PostgreSQL ───────────────────────────────────────────────────────────────
 if DATABASE_URL:
     import psycopg2

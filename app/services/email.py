@@ -22,13 +22,16 @@ def _send(to_email: str, subject: str, text: str) -> None:
         return
     try:
         import resend
+
         resend.api_key = RESEND_API_KEY
-        resend.Emails.send({
-            "from": "FingerPay <onboarding@resend.dev>",
-            "to": to_email,
-            "subject": subject,
-            "text": text,
-        })
+        resend.Emails.send(
+            {
+                "from": "FingerPay <onboarding@resend.dev>",
+                "to": to_email,
+                "subject": subject,
+                "text": text,
+            }
+        )
         logger.info("Email sent: subject=%s", subject)
     except Exception as e:
         logger.error("Failed to send email: %s", e)

@@ -6,6 +6,7 @@ The raw biometric data is never stored unencrypted.
 """
 
 import secrets
+
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.config import BIOMETRIC_ENCRYPTION_KEY

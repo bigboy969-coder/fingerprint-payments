@@ -6,19 +6,19 @@ Matches a fingerprint and returns a short-lived JWT.
 Requires a valid merchant API key.
 """
 
-import uuid
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Header, Request
+from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from app.services.biometrics import extract_descriptor
 from app.db import find_user_by_fingerprint
-from app.services.jwt import create_access_token
 from app.routes.deps import verify_merchant_api_key
+from app.services.biometrics import extract_descriptor
+from app.services.jwt import create_access_token
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()

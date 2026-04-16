@@ -3,11 +3,11 @@
 import pytest
 
 from app.services.jwt import (
+    TOKEN_TTL_MINUTES,
     create_access_token,
     create_merchant_token,
     verify_access_token,
     verify_merchant_token,
-    TOKEN_TTL_MINUTES,
 )
 
 

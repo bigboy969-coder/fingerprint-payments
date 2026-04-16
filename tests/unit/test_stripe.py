@@ -1,6 +1,6 @@
 """Tests for app.services.stripe — fee calculation."""
 
-from app.services.stripe import calculate_platform_fee, TRANSACTION_RATE, SCAN_FEE, MONTHLY_FEE
+from app.services.stripe import MONTHLY_FEE, SCAN_FEE, TRANSACTION_RATE, calculate_platform_fee
 
 
 class TestCalculatePlatformFee:
@@ -30,7 +30,9 @@ class TestCalculatePlatformFee:
         Before the fix, the first tx of the month would get $29 + $0.05 +
         $0.025 = $29.075, which Stripe would reject."""
         fee = calculate_platform_fee(5.00)
-        assert fee < 1.00, f"Fee {fee} is suspiciously high for $5 — monthly fee may still be bundled"
+        assert (
+            fee < 1.00
+        ), f"Fee {fee} is suspiciously high for $5 — monthly fee may still be bundled"
 
     def test_minimum_possible_fee(self):
         # Even the smallest transaction gets the scan fee
@@ -46,6 +48,7 @@ class TestCalculatePlatformFee:
     def test_no_include_monthly_parameter(self):
         """Verify the old include_monthly parameter no longer exists."""
         import inspect
+
         sig = inspect.signature(calculate_platform_fee)
         param_names = list(sig.parameters.keys())
         assert param_names == ["amount_usd"], f"Unexpected params: {param_names}"

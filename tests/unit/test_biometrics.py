@@ -1,17 +1,17 @@
 """Tests for app.services.biometrics — ORB extraction and matching."""
 
-import numpy as np
-import pytest
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 from app.services.biometrics import (
+    MATCH_THRESHOLD,
+    blob_to_desc,
+    desc_to_blob,
     extract_descriptor,
     match_score,
-    desc_to_blob,
-    blob_to_desc,
-    MATCH_THRESHOLD,
 )
-
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "images"
 TEST_IMAGE = FIXTURES_DIR / "test_fingerprint.png"

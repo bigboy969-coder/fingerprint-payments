@@ -3,12 +3,12 @@ FingerPay — User & Fingerprint Queries
 ========================================
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.config import DATABASE_URL
-from app.db.connection import _get_conn, _fetchone, _fetchall, PH, binary_wrap
-from app.services.crypto import encrypt_descriptor, decrypt_descriptor
-from app.services.biometrics import desc_to_blob, blob_to_desc, match_score, MATCH_THRESHOLD
+from app.db.connection import PH, _fetchall, _fetchone, _get_conn, binary_wrap
+from app.services.biometrics import MATCH_THRESHOLD, blob_to_desc, desc_to_blob, match_score
+from app.services.crypto import decrypt_descriptor, encrypt_descriptor
 
 
 def enroll_user(
@@ -19,7 +19,7 @@ def enroll_user(
     stripe_customer_id: str,
     stripe_payment_method_id: str,
 ) -> dict:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     with _get_conn() as conn:
         c = conn.cursor()
@@ -29,16 +29,22 @@ def enroll_user(
             raise ValueError(f"User with email {email} already enrolled.")
 
         if DATABASE_URL:
-            c.execute("""
+            c.execute(
+                """
                 INSERT INTO users (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, enrolled_at)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
-            """, (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, now))
+            """,
+                (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, now),
+            )
             user_id = c.fetchone()[0]
         else:
-            c.execute("""
+            c.execute(
+                """
                 INSERT INTO users (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, enrolled_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, now))
+            """,
+                (full_name, email, phone, stripe_customer_id, stripe_payment_method_id, now),
+            )
             user_id = c.lastrowid
 
         encrypted = encrypt_descriptor(desc_to_blob(descriptor))

@@ -14,17 +14,17 @@ Flow:
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.db import (
-    get_user_by_id,
-    get_merchant_by_id,
     create_pending_transaction,
+    get_merchant_by_id,
+    get_user_by_id,
     update_transaction_result,
 )
 from app.services.jwt import verify_access_token
-from app.services.stripe import charge_customer, calculate_platform_fee
+from app.services.stripe import calculate_platform_fee, charge_customer
 
 logger = logging.getLogger("fingerpay.pay")
 router = APIRouter()
@@ -91,7 +91,9 @@ async def pay(
             merchant=merchant_name,
             idempotency_key=f"fingerpay-tx-{pending_tx['id']}",
             stripe_connect_id=merchant.get("stripe_connect_id") if merchant else None,
-            platform_fee_usd=platform_fee if merchant and merchant.get("stripe_connect_id") else None,
+            platform_fee_usd=(
+                platform_fee if merchant and merchant.get("stripe_connect_id") else None
+            ),
         )
     except Exception as e:
         # Stripe rejected — update the pending row to failed

@@ -8,7 +8,7 @@ import hashlib
 
 from fastapi import HTTPException, Request
 
-from app.db import get_merchant_by_id, get_merchant_by_api_key_hash
+from app.db import get_merchant_by_api_key_hash, get_merchant_by_id
 from app.services.jwt import verify_merchant_token
 
 
@@ -39,7 +39,9 @@ def get_merchant_from_token(authorization: str = None, request: Request = None) 
     # Fall back to Authorization header
     if not token and authorization:
         if not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Authorization header must be: Bearer <token>")
+            raise HTTPException(
+                status_code=401, detail="Authorization header must be: Bearer <token>"
+            )
         token = authorization.removeprefix("Bearer ")
 
     if not token:

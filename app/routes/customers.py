@@ -6,9 +6,9 @@ POST /customers/verify-code     - verify code, return customer info
 DELETE /customers/delete-account - delete all customer data
 """
 
-import random
 import logging
-from datetime import datetime, timedelta, timezone
+import random
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
@@ -19,10 +19,10 @@ limiter = Limiter(key_func=get_remote_address)
 
 from app.db import (
     check_email_exists,
-    get_user_by_email,
     create_customer_verification_code,
-    verify_customer_code,
     delete_customer_by_email,
+    get_user_by_email,
+    verify_customer_code,
 )
 from app.services.email import send_verification_email
 
@@ -31,6 +31,7 @@ router = APIRouter(prefix="/customers")
 
 
 # ── Request access ────────────────────────────────────────────────────────────
+
 
 class RequestAccess(BaseModel):
     email: str
@@ -42,15 +43,19 @@ async def request_access(request: Request, body: RequestAccess, bg: BackgroundTa
     exists = check_email_exists(body.email)
     if exists:
         code = str(random.randint(100000, 999999))
-        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        expires_at = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
         create_customer_verification_code(body.email, code, expires_at)
         send_verification_email(bg, body.email, code)
 
     # Always return success to avoid leaking which emails are enrolled
-    return {"success": True, "message": "If that email is enrolled, a verification code has been sent."}
+    return {
+        "success": True,
+        "message": "If that email is enrolled, a verification code has been sent.",
+    }
 
 
 # ── Verify code ───────────────────────────────────────────────────────────────
+
 
 class VerifyCode(BaseModel):
     email: str
@@ -81,6 +86,7 @@ async def verify_code(request: Request, body: VerifyCode):
 
 # ── Delete account ────────────────────────────────────────────────────────────
 
+
 class DeleteAccount(BaseModel):
     email: str
     code: str
@@ -97,7 +103,9 @@ async def delete_account(body: DeleteAccount):
     if user and user.get("stripe_customer_id"):
         try:
             import stripe
+
             from app.config import STRIPE_SECRET_KEY
+
             stripe.api_key = STRIPE_SECRET_KEY
             stripe.Customer.delete(user["stripe_customer_id"])
         except Exception as e:
@@ -107,4 +115,7 @@ async def delete_account(body: DeleteAccount):
     if not deleted:
         raise HTTPException(status_code=404, detail="Account not found.")
 
-    return {"success": True, "message": "Your account and all associated data have been permanently deleted."}
+    return {
+        "success": True,
+        "message": "Your account and all associated data have been permanently deleted.",
+    }

@@ -7,9 +7,9 @@ GET       /pos/status/{id}  - POS polls this to check if payment completed
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from app.routes.deps import verify_merchant_api_key
@@ -18,6 +18,7 @@ router = APIRouter()
 
 
 # ── Connection Manager ────────────────────────────────────────────────────────
+
 
 class TerminalManager:
     def __init__(self):
@@ -38,11 +39,13 @@ class TerminalManager:
         ws = self.terminals.get(merchant_id)
         if not ws:
             raise ValueError("Terminal is not connected.")
-        await ws.send_json({
-            "type": "payment_request",
-            "amount": amount,
-            "transaction_id": transaction_id,
-        })
+        await ws.send_json(
+            {
+                "type": "payment_request",
+                "amount": amount,
+                "transaction_id": transaction_id,
+            }
+        )
 
     async def send_to_terminal(self, merchant_id: int, message: dict):
         ws = self.terminals.get(merchant_id)
@@ -53,7 +56,7 @@ class TerminalManager:
         self.transactions[transaction_id] = {
             "status": status,
             "data": data or {},
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
 
     def get_transaction(self, transaction_id: str) -> dict | None:
@@ -64,6 +67,7 @@ manager = TerminalManager()
 
 
 # ── WebSocket — Kiosk connects here ──────────────────────────────────────────
+
 
 @router.websocket("/ws/terminal")
 async def terminal_websocket(ws: WebSocket):
@@ -76,9 +80,10 @@ async def terminal_websocket(ws: WebSocket):
 
     # Wait for auth message (5-second timeout via receive_json)
     import asyncio
+
     try:
         data = await asyncio.wait_for(ws.receive_json(), timeout=5.0)
-    except (asyncio.TimeoutError, Exception):
+    except (TimeoutError, Exception):
         await ws.close(code=4001, reason="Auth timeout")
         return
 
@@ -119,6 +124,7 @@ async def terminal_websocket(ws: WebSocket):
 
 # ── POST /pos/charge ─────────────────────────────────────────────────────────
 
+
 class POSChargeRequest(BaseModel):
     api_key: str
     amount: float
@@ -133,7 +139,9 @@ async def pos_charge(body: POSChargeRequest):
         raise HTTPException(status_code=401, detail="Invalid API key.")
 
     if not manager.is_connected(merchant["id"]):
-        raise HTTPException(status_code=503, detail="Terminal is not connected. Make sure the kiosk is open.")
+        raise HTTPException(
+            status_code=503, detail="Terminal is not connected. Make sure the kiosk is open."
+        )
 
     transaction_id = str(uuid.uuid4())
     manager.record_transaction(transaction_id, "pending")
@@ -156,6 +164,7 @@ async def pos_charge(body: POSChargeRequest):
 
 # ── GET /pos/status/{id} ─────────────────────────────────────────────────────
 
+
 @router.get("/pos/status/{transaction_id}")
 async def pos_status(transaction_id: str):
     tx = manager.get_transaction(transaction_id)
@@ -165,6 +174,7 @@ async def pos_status(transaction_id: str):
 
 
 # ── GET /pos/terminal/status ─────────────────────────────────────────────────
+
 
 @router.get("/pos/terminal/status")
 async def terminal_status(api_key: str):

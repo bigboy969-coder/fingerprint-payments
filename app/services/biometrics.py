@@ -8,7 +8,6 @@ Extracts ORB descriptors and matches them.
 import cv2
 import numpy as np
 
-
 # ── Config ────────────────────────────────────────────────────────────────────
 MATCH_THRESHOLD = 40  # minimum good matches to confirm identity
 

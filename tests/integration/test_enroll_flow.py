@@ -1,7 +1,8 @@
 """Integration tests for the enrollment flow: session → form → scan → verify."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "images"
 TEST_IMAGE = FIXTURES_DIR / "test_fingerprint.png"
@@ -29,13 +30,16 @@ class TestEnrollmentSession:
 class TestEnrollmentStart:
     def test_start_moves_to_pending_scan(self, client, stripe_stub):
         session = client.post("/enroll/session").json()
-        res = client.post("/enroll/start", json={
-            "session_id": session["session_id"],
-            "full_name": "Test User",
-            "email": "enroll@test.com",
-            "phone": "+1234567890",
-            "stripe_payment_method_id": "pm_test_123",
-        })
+        res = client.post(
+            "/enroll/start",
+            json={
+                "session_id": session["session_id"],
+                "full_name": "Test User",
+                "email": "enroll@test.com",
+                "phone": "+1234567890",
+                "stripe_payment_method_id": "pm_test_123",
+            },
+        )
         assert res.status_code == 200
 
         # Status should now be pending_scan
@@ -45,12 +49,15 @@ class TestEnrollmentStart:
     def test_start_rejects_duplicate_email(self, client, stripe_stub):
         # First enrollment
         s1 = client.post("/enroll/session").json()
-        client.post("/enroll/start", json={
-            "session_id": s1["session_id"],
-            "full_name": "First",
-            "email": "unique@test.com",
-            "stripe_payment_method_id": "pm_test_1",
-        })
+        client.post(
+            "/enroll/start",
+            json={
+                "session_id": s1["session_id"],
+                "full_name": "First",
+                "email": "unique@test.com",
+                "stripe_payment_method_id": "pm_test_1",
+            },
+        )
         # Complete it with a fingerprint
         if TEST_IMAGE.exists():
             with open(TEST_IMAGE, "rb") as f:
@@ -61,12 +68,15 @@ class TestEnrollmentStart:
 
         # Second attempt with same email
         s2 = client.post("/enroll/session").json()
-        res = client.post("/enroll/start", json={
-            "session_id": s2["session_id"],
-            "full_name": "Second",
-            "email": "unique@test.com",
-            "stripe_payment_method_id": "pm_test_2",
-        })
+        res = client.post(
+            "/enroll/start",
+            json={
+                "session_id": s2["session_id"],
+                "full_name": "Second",
+                "email": "unique@test.com",
+                "stripe_payment_method_id": "pm_test_2",
+            },
+        )
         assert res.status_code == 400
         # Generic message — no email enumeration
         assert "enrolled" not in res.json()["detail"].lower()
@@ -77,12 +87,15 @@ class TestEnrollmentComplete:
     def test_complete_enrollment(self, client, stripe_stub):
         # Create session + submit form
         session = client.post("/enroll/session").json()
-        client.post("/enroll/start", json={
-            "session_id": session["session_id"],
-            "full_name": "Complete User",
-            "email": "complete@test.com",
-            "stripe_payment_method_id": "pm_test_complete",
-        })
+        client.post(
+            "/enroll/start",
+            json={
+                "session_id": session["session_id"],
+                "full_name": "Complete User",
+                "email": "complete@test.com",
+                "stripe_payment_method_id": "pm_test_complete",
+            },
+        )
 
         # Upload fingerprint
         with open(TEST_IMAGE, "rb") as f:

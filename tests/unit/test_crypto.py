@@ -1,12 +1,13 @@
 """Tests for app.services.crypto — AES-256-GCM encrypt/decrypt."""
 
 import os
+
 import pytest
 
 
 class TestEncryptDecrypt:
     def test_round_trip(self):
-        from app.services.crypto import encrypt_descriptor, decrypt_descriptor
+        from app.services.crypto import decrypt_descriptor, encrypt_descriptor
 
         plaintext = b"hello world" * 10  # arbitrary bytes
         encrypted = encrypt_descriptor(plaintext)
@@ -33,7 +34,7 @@ class TestEncryptDecrypt:
         assert len(encrypted) == 128
 
     def test_tampered_ciphertext_raises(self):
-        from app.services.crypto import encrypt_descriptor, decrypt_descriptor
+        from app.services.crypto import decrypt_descriptor, encrypt_descriptor
 
         encrypted = encrypt_descriptor(b"secret data")
         # Flip a byte in the ciphertext portion (after the 12-byte nonce)
@@ -42,14 +43,14 @@ class TestEncryptDecrypt:
             decrypt_descriptor(tampered)
 
     def test_empty_plaintext(self):
-        from app.services.crypto import encrypt_descriptor, decrypt_descriptor
+        from app.services.crypto import decrypt_descriptor, encrypt_descriptor
 
         encrypted = encrypt_descriptor(b"")
         decrypted = decrypt_descriptor(encrypted)
         assert decrypted == b""
 
     def test_large_plaintext(self):
-        from app.services.crypto import encrypt_descriptor, decrypt_descriptor
+        from app.services.crypto import decrypt_descriptor, encrypt_descriptor
 
         # ORB descriptors are typically ~500*32 = 16,000 bytes
         plaintext = os.urandom(16000)
@@ -61,9 +62,12 @@ class TestEncryptDecrypt:
         monkeypatch.setenv("BIOMETRIC_ENCRYPTION_KEY", "")
         # Need to reimport to pick up the empty key
         import importlib
+
         import app.config
+
         importlib.reload(app.config)
         import app.services.crypto as crypto
+
         importlib.reload(crypto)
 
         with pytest.raises(RuntimeError, match="BIOMETRIC_ENCRYPTION_KEY"):

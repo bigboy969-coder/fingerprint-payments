@@ -21,6 +21,7 @@ def init_db() -> None:
 
 # ── PostgreSQL ───────────────────────────────────────────────────────────────
 
+
 def _create_tables_postgres(c) -> None:
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -109,6 +110,7 @@ def _create_tables_postgres(c) -> None:
 
 
 # ── SQLite ───────────────────────────────────────────────────────────────────
+
 
 def _create_tables_sqlite(c) -> None:
     c.execute("""

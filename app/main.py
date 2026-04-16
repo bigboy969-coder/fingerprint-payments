@@ -10,11 +10,11 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse, JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app.config import STRIPE_PUBLISHABLE_KEY, validate_env
 from app.db import init_db
@@ -50,6 +50,7 @@ limiter = Limiter(key_func=get_remote_address)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     import os
+
     validate_env()
     init_db()
 
@@ -64,6 +65,7 @@ async def lifespan(_app: FastAPI):
 
     # Run initial cleanup on startup
     from app.services.cleanup import run_all_cleanups
+
     run_all_cleanups()
 
     logger.info("FingerPay started")
@@ -71,9 +73,12 @@ async def lifespan(_app: FastAPI):
 
     # Log any in-flight POS transactions on shutdown
     from app.routes.pos import manager
+
     pending = {k: v for k, v in manager.transactions.items() if v.get("status") == "pending"}
     if pending:
-        logger.warning("Shutting down with %d pending POS transactions: %s", len(pending), list(pending.keys()))
+        logger.warning(
+            "Shutting down with %d pending POS transactions: %s", len(pending), list(pending.keys())
+        )
     connected = list(manager.terminals.keys())
     if connected:
         logger.info("Disconnecting %d terminals: merchant_ids=%s", len(connected), connected)
@@ -100,7 +105,9 @@ async def limit_upload_size(request: Request, call_next):
         if content_length:
             try:
                 if int(content_length) > MAX_UPLOAD_BYTES:
-                    return JSONResponse(status_code=413, content={"detail": "File too large. Max 5MB."})
+                    return JSONResponse(
+                        status_code=413, content={"detail": "File too large. Max 5MB."}
+                    )
             except ValueError:
                 return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length."})
     return await call_next(request)
@@ -152,6 +159,7 @@ register_routes(app)
 
 # ── Health ───────────────────────────────────────────────────────────────────
 
+
 @app.get("/healthz")
 def healthz():
     """Liveness probe. Process is up."""
@@ -163,6 +171,7 @@ def readyz():
     """Readiness probe. Process is up and DB is reachable."""
     try:
         from app.db.connection import _get_conn
+
         with _get_conn() as conn:
             conn.cursor().execute("SELECT 1")
         return {"status": "ok"}
@@ -171,6 +180,7 @@ def readyz():
 
 
 # ── Top-level redirects ──────────────────────────────────────────────────────
+
 
 @app.get("/")
 def home():

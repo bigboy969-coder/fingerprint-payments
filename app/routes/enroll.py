@@ -7,25 +7,25 @@ POST /enroll/start/{id}       - phone submits form data + Stripe payment method
 POST /enroll/complete/{id}    - kiosk submits fingerprint scan to finish enrollment
 """
 
-import uuid
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from app.db import (
+    check_email_exists,
+    complete_session,
+    create_session,
+    enroll_user,
+    find_user_by_fingerprint,
+    get_session,
+    save_session_form,
+)
 from app.services.biometrics import extract_descriptor
 from app.services.stripe import create_customer
-from app.db import (
-    enroll_user,
-    check_email_exists,
-    create_session,
-    save_session_form,
-    get_session,
-    complete_session,
-    find_user_by_fingerprint,
-)
 
 router = APIRouter(prefix="/enroll")
 
@@ -64,7 +64,10 @@ class EnrollFormData(BaseModel):
 async def start_enrollment(body: EnrollFormData):
     if check_email_exists(body.email):
         # Generic message to avoid leaking which emails are enrolled (ISSUES #14)
-        raise HTTPException(status_code=400, detail="Unable to complete enrollment. Please try again or contact support.")
+        raise HTTPException(
+            status_code=400,
+            detail="Unable to complete enrollment. Please try again or contact support.",
+        )
 
     try:
         session = get_session(body.session_id)
@@ -105,8 +108,11 @@ async def complete_enrollment(session_id: str, file: UploadFile = File(...)):
     if session["status"] != "pending_scan":
         raise HTTPException(
             status_code=400,
-            detail="Customer has not submitted their details yet." if session["status"] == "pending_form"
-            else "Enrollment already complete.",
+            detail=(
+                "Customer has not submitted their details yet."
+                if session["status"] == "pending_form"
+                else "Enrollment already complete."
+            ),
         )
 
     temp_path = UPLOAD_DIR / f"{uuid.uuid4()}.png"
@@ -164,4 +170,8 @@ async def verify_enrollment(session_id: str, file: UploadFile = File(...)):
     finally:
         temp_path.unlink(missing_ok=True)
 
-    return {"success": True, "message": "Fingerprint confirmed!", "name": result["user"]["full_name"]}
+    return {
+        "success": True,
+        "message": "Fingerprint confirmed!",
+        "name": result["user"]["full_name"],
+    }
