@@ -176,10 +176,11 @@
   </div>
 
   <script>
-    // Redirect to dashboard if already logged in
-    if (localStorage.getItem("merchant_token")) {
-      window.location.href = "/business/dashboard";
-    }
+    // Check if already logged in by making a lightweight authenticated request.
+    // Cookie is sent automatically; if 401, stay on signup.
+    fetch("/merchants/me").then(res => {
+      if (res.ok) window.location.href = "/business/dashboard";
+    });
 
     async function signup() {
       const btn = document.getElementById("submit-btn");
@@ -217,8 +218,8 @@
           return;
         }
 
-        // Save token
-        localStorage.setItem("merchant_token", data.token);
+        // Token is now set as an HttpOnly cookie by the server response.
+        // No localStorage needed.
 
         // Show API key
         document.getElementById("api-key-value").textContent = data.api_key;

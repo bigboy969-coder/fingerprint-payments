@@ -1,0 +1,42 @@
+# CODEOWNERS — GitHub will auto-request reviews from the listed owners
+# when matching paths change. Replace placeholder GitHub handles before use.
+#
+# Order matters — the LAST matching pattern wins.
+
+# Default owner for everything not matched below
+*                                      @MILTONADINA
+
+# Security-critical surfaces — always require security review
+/app/services/crypto.py                @MILTONADINA @security-team
+/app/services/jwt.py                   @MILTONADINA @security-team
+/app/services/stripe.py                @MILTONADINA @security-team
+/app/db/                               @MILTONADINA @security-team
+/app/services/biometrics.py            @MILTONADINA @security-team
+/app/routes/authenticate.py            @MILTONADINA @security-team
+/app/routes/pay.py                     @MILTONADINA @security-team
+/app/routes/merchants.py               @MILTONADINA @security-team
+/app/routes/customers.py               @MILTONADINA @security-team
+/app/routes/deps.py                    @MILTONADINA @security-team
+/app/config.py                         @MILTONADINA @security-team
+
+# Frontend
+/static/                               @MILTONADINA @frontend-team
+
+# Infra / CI / build
+/Dockerfile                            @MILTONADINA @platform-team
+/.github/                              @MILTONADINA @platform-team
+/Makefile                              @MILTONADINA @platform-team
+/pyproject.toml                        @MILTONADINA @platform-team
+/requirements.txt                      @MILTONADINA @platform-team
+/.pre-commit-config.yaml               @MILTONADINA @platform-team
+
+# Docs are owned by whoever ships them; CTO reviews policy/security docs
+/docs/SECURITY.md                      @MILTONADINA @security-team
+/docs/THREAT_MODEL.md                  @MILTONADINA @security-team
+/docs/PRIVACY.md                       @MILTONADINA @security-team
+/docs/BIOMETRIC_DATA_POLICY.md         @MILTONADINA @security-team
+/docs/KEY_MANAGEMENT.md                @MILTONADINA @security-team
+/docs/PCI_COMPLIANCE.md                @MILTONADINA @security-team
+/docs/DATA_RETENTION.md                @MILTONADINA @security-team
+/docs/DISASTER_RECOVERY.md             @MILTONADINA @security-team
+/docs/adr/                             @MILTONADINA

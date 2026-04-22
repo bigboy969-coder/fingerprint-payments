@@ -231,19 +231,23 @@
       if (!apiKey) return; // no API key = no WebSocket (still works for enrollment)
 
       const protocol = location.protocol === "https:" ? "wss" : "ws";
-      const wsUrl = `${protocol}://${location.host}/ws/terminal?api_key=${apiKey}`;
+      // API key is NOT in the URL — sent as first message after connect.
+      const wsUrl = `${protocol}://${location.host}/ws/terminal`;
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        setConnected(true);
-        clearTimeout(wsReconnectTimer);
-        // Keep alive with ping every 30s
-        setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({type:"ping"})); }, 30000);
+        // Authenticate via first message (API key never in URL/logs)
+        ws.send(JSON.stringify({ type: "auth", api_key: apiKey }));
       };
 
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
-        if (msg.type === "payment_request") {
+        if (msg.type === "auth_ok") {
+          setConnected(true);
+          clearTimeout(wsReconnectTimer);
+          // Keep alive with ping every 30s
+          setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({type:"ping"})); }, 30000);
+        } else if (msg.type === "payment_request") {
           currentTransactionId = msg.transaction_id;
           currentPayAmount = msg.amount;
           showPaymentRequest(msg.amount);
