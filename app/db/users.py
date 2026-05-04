@@ -68,7 +68,7 @@ def find_user_by_fingerprint(verification_features: bytes) -> dict:
         template_blob = blob_to_desc(decrypt_descriptor(raw))
         try:
             matched = verify(verification_features, template_blob)
-        except Exception:
+        except Exception:  # noqa: S112
             continue
         if matched:
             user_id = row["user_id"]

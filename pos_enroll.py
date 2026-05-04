@@ -4,16 +4,17 @@ Captures fingerprint locally, sends template to the Render backend.
 
 Usage: python pos_enroll.py <MERCHANT_API_KEY>
 """
-import sys
 import base64
+import sys
 import time
+
 import requests
 
 from app.services.biometrics import (
     SCANS_NEEDED,
+    build_template,
     capture_enrollment_features,
     enrollment_features_needed,
-    build_template,
 )
 
 BASE_URL = "https://fingerprint-payments.onrender.com"
@@ -22,7 +23,7 @@ BASE_URL = "https://fingerprint-payments.onrender.com"
 def main(api_key: str):
     # 1. Create enrollment session
     r = requests.post(f"{BASE_URL}/enroll/session",
-                      headers={"X-API-Key": api_key})
+                      headers={"X-API-Key": api_key}, timeout=30)
     r.raise_for_status()
     data       = r.json()
     session_id = data["session_id"]
@@ -35,7 +36,7 @@ def main(api_key: str):
     # 2. Wait for customer to fill in form on their phone
     print("\nWaiting for customer to submit form...")
     while True:
-        r = requests.get(f"{BASE_URL}/enroll/status/{session_id}")
+        r = requests.get(f"{BASE_URL}/enroll/status/{session_id}", timeout=10)
         status = r.json()["status"]
         if status == "pending_scan":
             print("Form submitted! Proceeding to fingerprint capture.")
@@ -70,6 +71,7 @@ def main(api_key: str):
     r = requests.post(
         f"{BASE_URL}/enroll/complete/{session_id}",
         json={"template": base64.b64encode(template).decode()},
+        timeout=30,
     )
     if r.status_code == 200:
         user = r.json().get("user", {})

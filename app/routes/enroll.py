@@ -8,6 +8,7 @@ POST /enroll/complete/{id}    - kiosk triggers fingerprint capture to finish enr
 POST /enroll/verify/{id}      - kiosk captures a second scan to confirm enrollment
 """
 
+import base64
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -22,14 +23,7 @@ from app.db import (
     get_session,
     save_session_form,
 )
-import base64
-
-from app.services.biometrics import (
-    build_template,
-    capture_enrollment_features,
-    capture_verification_features,
-    enrollment_features_needed,
-)
+from app.services.biometrics import capture_verification_features
 from app.services.stripe import create_customer
 
 router = APIRouter(prefix="/enroll")

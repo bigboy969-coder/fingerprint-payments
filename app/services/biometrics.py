@@ -18,6 +18,7 @@ _WINDOWS = platform.system() == "Windows"
 # ── Windows-only setup ────────────────────────────────────────────────────────
 if _WINDOWS:
     from ctypes import wintypes
+
     import win32api
     import win32con
     import win32gui
