@@ -53,7 +53,11 @@ def main(api_key: str):
 
     while needed > 0:
         scan_num += 1
-        print(f"\nScan {scan_num}/{SCANS_NEEDED} — click the capture window, then place finger.")
+        print(
+            f"\nScan {scan_num}/{SCANS_NEEDED} — a window will appear. Click it, then place finger."
+        )
+        print("Starting in 3 seconds...")
+        time.sleep(3)
         try:
             features = capture_enrollment_features(timeout=20)
             feature_blobs.append(features)

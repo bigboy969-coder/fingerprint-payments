@@ -199,7 +199,10 @@ def _capture_one_image(timeout: int = 15) -> tuple[bytes, int]:
         class_name, "FingerPay", win32con.WS_OVERLAPPEDWINDOW, 200, 200, 280, 60, 0, 0, 0, None
     )
     win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
-    win32gui.SetForegroundWindow(hwnd)
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
 
     _dpfp.DPFPCreateAcquisition(
         _DP_PRIORITY_NORMAL,
