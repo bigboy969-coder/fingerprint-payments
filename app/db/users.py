@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from app.config import DATABASE_URL
 from app.db.connection import PH, _fetchall, _fetchone, _get_conn, binary_wrap
-from app.services.biometrics import MATCH_THRESHOLD, blob_to_desc, desc_to_blob, match_score
+from app.services.biometrics import blob_to_desc, desc_to_blob, verify
 from app.services.crypto import decrypt_descriptor, encrypt_descriptor
 
 
@@ -57,32 +57,28 @@ def enroll_user(
         return _fetchone(c)
 
 
-def find_user_by_fingerprint(probe) -> dict:
+def find_user_by_fingerprint(verification_features: bytes) -> dict:
     with _get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT user_id, descriptor FROM fingerprints")
         rows = _fetchall(c)
 
-    best_id = None
-    best_score = 0
-
     for row in rows:
         raw = bytes(row["descriptor"])
-        score = match_score(probe, blob_to_desc(decrypt_descriptor(raw)))
-        if score > best_score:
-            best_score = score
-            best_id = row["user_id"]
+        template_blob = blob_to_desc(decrypt_descriptor(raw))
+        try:
+            matched = verify(verification_features, template_blob)
+        except Exception:
+            continue
+        if matched:
+            user_id = row["user_id"]
+            with _get_conn() as conn:
+                c = conn.cursor()
+                c.execute(f"SELECT * FROM users WHERE id = {PH}", (user_id,))
+                user = _fetchone(c)
+            return {"matched": True, "user": user}
 
-    matched = best_score >= MATCH_THRESHOLD
-
-    if matched and best_id:
-        with _get_conn() as conn:
-            c = conn.cursor()
-            c.execute(f"SELECT * FROM users WHERE id = {PH}", (best_id,))
-            row = _fetchone(c)
-        return {"matched": True, "score": best_score, "user": row}
-
-    return {"matched": False, "score": best_score, "user": None}
+    return {"matched": False, "user": None}
 
 
 def check_email_exists(email: str) -> bool:

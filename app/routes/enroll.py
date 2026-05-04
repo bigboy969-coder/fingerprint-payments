@@ -4,15 +4,13 @@ FingerPay — Enroll Routes
 POST /enroll/session          - kiosk creates a new session + gets QR link
 GET  /enroll/status/{id}      - kiosk polls for form completion
 POST /enroll/start/{id}       - phone submits form data + Stripe payment method
-POST /enroll/complete/{id}    - kiosk submits fingerprint scan to finish enrollment
+POST /enroll/complete/{id}    - kiosk triggers fingerprint capture to finish enrollment
+POST /enroll/verify/{id}      - kiosk captures a second scan to confirm enrollment
 """
 
-import shutil
-import tempfile
 import uuid
-from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.db import (
@@ -24,13 +22,17 @@ from app.db import (
     get_session,
     save_session_form,
 )
-from app.services.biometrics import extract_descriptor
+import base64
+
+from app.services.biometrics import (
+    build_template,
+    capture_enrollment_features,
+    capture_verification_features,
+    enrollment_features_needed,
+)
 from app.services.stripe import create_customer
 
 router = APIRouter(prefix="/enroll")
-
-UPLOAD_DIR = Path(tempfile.gettempdir()) / "fingerpay_uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
 
 
 @router.post("/session")
@@ -63,7 +65,6 @@ class EnrollFormData(BaseModel):
 @router.post("/start")
 async def start_enrollment(body: EnrollFormData):
     if check_email_exists(body.email):
-        # Generic message to avoid leaking which emails are enrolled (ISSUES #14)
         raise HTTPException(
             status_code=400,
             detail="Unable to complete enrollment. Please try again or contact support.",
@@ -98,8 +99,16 @@ async def start_enrollment(body: EnrollFormData):
     return {"success": True, "message": "Please go to the kiosk to scan your finger."}
 
 
+class EnrollCompleteBody(BaseModel):
+    template: str  # base64-encoded template bytes from the POS terminal
+
+
 @router.post("/complete/{session_id}")
-async def complete_enrollment(session_id: str, file: UploadFile = File(...)):
+async def complete_enrollment(session_id: str, body: EnrollCompleteBody):
+    """
+    Accepts a base64-encoded fingerprint template from the POS terminal.
+    The POS captures scans locally using the DP SDK and sends the result here.
+    """
     try:
         session = get_session(session_id)
     except ValueError:
@@ -115,17 +124,17 @@ async def complete_enrollment(session_id: str, file: UploadFile = File(...)):
             ),
         )
 
-    temp_path = UPLOAD_DIR / f"{uuid.uuid4()}.png"
-    with temp_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    try:
+        template = base64.b64decode(body.template)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid template encoding.")
 
     try:
-        descriptor = extract_descriptor(str(temp_path))
         user = enroll_user(
             full_name=session["full_name"],
             email=session["email"],
             phone=session["phone"],
-            descriptor=descriptor,
+            descriptor=template,
             stripe_customer_id=session["stripe_customer_id"],
             stripe_payment_method_id=session["stripe_payment_method_id"],
         )
@@ -134,14 +143,15 @@ async def complete_enrollment(session_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        temp_path.unlink(missing_ok=True)
 
     return {"success": True, "user": user}
 
 
 @router.post("/verify/{session_id}")
-async def verify_enrollment(session_id: str, file: UploadFile = File(...)):
+async def verify_enrollment(session_id: str):
+    """
+    Captures a second fingerprint scan to confirm enrollment quality.
+    """
     try:
         session = get_session(session_id)
     except ValueError:
@@ -154,21 +164,16 @@ async def verify_enrollment(session_id: str, file: UploadFile = File(...)):
     if not user_id:
         raise HTTPException(status_code=400, detail="User not found in session.")
 
-    temp_path = UPLOAD_DIR / f"{uuid.uuid4()}.png"
-    with temp_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
     try:
-        descriptor = extract_descriptor(str(temp_path))
-        result = find_user_by_fingerprint(descriptor)
-        if not result["matched"] or result["user"]["id"] != user_id:
-            raise HTTPException(status_code=401, detail="Fingerprint did not match. Try again.")
-    except HTTPException:
-        raise
+        features = capture_verification_features(timeout=15)
+        result = find_user_by_fingerprint(features)
+    except TimeoutError:
+        raise HTTPException(status_code=408, detail="No finger detected. Please try again.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        temp_path.unlink(missing_ok=True)
+
+    if not result["matched"] or result["user"]["id"] != user_id:
+        raise HTTPException(status_code=401, detail="Fingerprint did not match. Try again.")
 
     return {
         "success": True,
