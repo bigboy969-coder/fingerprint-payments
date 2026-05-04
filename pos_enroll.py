@@ -4,6 +4,7 @@ Captures fingerprint locally, sends template to the Render backend.
 
 Usage: python pos_enroll.py <MERCHANT_API_KEY>
 """
+
 import base64
 import sys
 import time
@@ -22,10 +23,9 @@ BASE_URL = "https://fingerprint-payments.onrender.com"
 
 def main(api_key: str):
     # 1. Create enrollment session
-    r = requests.post(f"{BASE_URL}/enroll/session",
-                      headers={"X-API-Key": api_key}, timeout=30)
+    r = requests.post(f"{BASE_URL}/enroll/session", headers={"X-API-Key": api_key}, timeout=30)
     r.raise_for_status()
-    data       = r.json()
+    data = r.json()
     session_id = data["session_id"]
     enroll_url = f"{BASE_URL}{data['enroll_url']}"
 
