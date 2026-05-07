@@ -16,5 +16,5 @@ bcrypt~=5.0.0
 psycopg2-binary~=2.9.10
 resend~=2.7.0
 cryptography~=46.0.5
-alembic~=1.16.1
+alembic~=1.18.4
 structlog~=25.4.0
