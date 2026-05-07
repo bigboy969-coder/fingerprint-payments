@@ -53,7 +53,9 @@ ignore = [
 "alembic/**" = ["E402", "UP"]  # alembic templates have their own structure
 "app/routes/merchants.py" = ["E402"]  # limiter must be defined before local imports that use it
 "app/routes/customers.py" = ["E402"]  # same pattern
-"pos_enroll.py" = ["T201", "S113"]   # CLI script: print and requests without timeout are intentional
+"pos_enroll.py" = ["T201", "S113"]       # CLI script: print and requests without timeout are intentional
+"pos_authenticate.py" = ["T201", "S113"] # CLI script: same
+"app/routes/pos_auth.py" = ["E402"]      # BaseModel import after class stub
 
 [tool.ruff.lint.isort]
 known-first-party = ["pipeline", "routes", "utils"]

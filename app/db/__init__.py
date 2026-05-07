@@ -42,6 +42,7 @@ from app.db.users import (
     delete_customer_by_email,
     enroll_user,
     find_user_by_fingerprint,
+    get_all_fingerprints,
     get_user_by_email,
     get_user_by_id,
 )
@@ -51,6 +52,7 @@ __all__ = [
     # users
     "enroll_user",
     "find_user_by_fingerprint",
+    "get_all_fingerprints",
     "check_email_exists",
     "get_user_by_id",
     "get_user_by_email",

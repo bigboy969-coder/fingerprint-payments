@@ -88,6 +88,14 @@ def check_email_exists(email: str) -> bool:
         return _fetchone(c) is not None
 
 
+def get_all_fingerprints() -> list:
+    """Return all (user_id, descriptor) rows for POS local matching."""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT user_id, descriptor FROM fingerprints")
+        return _fetchall(c)
+
+
 def get_user_by_id(user_id: int) -> dict:
     with _get_conn() as conn:
         c = conn.cursor()
