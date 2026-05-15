@@ -14,7 +14,6 @@ def create_pending_transaction(
     amount: float,
     merchant: str,
     merchant_id: int = None,
-    platform_fee: float = 0.0,
 ) -> dict:
     """Insert a transaction row with status='pending' BEFORE calling Stripe.
     This ensures a DB record exists even if the Stripe call succeeds but the
@@ -26,18 +25,18 @@ def create_pending_transaction(
             c.execute(
                 """
                 INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
-                VALUES (%s, %s, %s, %s, %s, 0, %s, %s, %s) RETURNING id
+                VALUES (%s, %s, %s, %s, %s, 0, %s, 0, %s) RETURNING id
             """,
-                (user_id, amount, merchant, None, "pending", merchant_id, platform_fee, now),
+                (user_id, amount, merchant, None, "pending", merchant_id, now),
             )
             tx_id = c.fetchone()[0]
         else:
             c.execute(
                 """
                 INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
-                VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?)
             """,
-                (user_id, amount, merchant, None, "pending", merchant_id, platform_fee, now),
+                (user_id, amount, merchant, None, "pending", merchant_id, now),
             )
             tx_id = c.lastrowid
         c.execute(f"SELECT * FROM transactions WHERE id = {PH}", (tx_id,))
@@ -71,7 +70,6 @@ def record_transaction(
     stripe_payment_intent_id: str,
     stripe_status: str,
     merchant_id: int = None,
-    platform_fee: float = 0.0,
 ) -> dict:
     """Legacy single-step insert. Prefer create_pending + update_transaction_result."""
     now = datetime.now(UTC).isoformat()
@@ -81,36 +79,18 @@ def record_transaction(
             c.execute(
                 """
                 INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
-                VALUES (%s, %s, %s, %s, %s, 0, %s, %s, %s) RETURNING id
+                VALUES (%s, %s, %s, %s, %s, 0, %s, 0, %s) RETURNING id
             """,
-                (
-                    user_id,
-                    amount,
-                    merchant,
-                    stripe_payment_intent_id,
-                    stripe_status,
-                    merchant_id,
-                    platform_fee,
-                    now,
-                ),
+                (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, merchant_id, now),
             )
             tx_id = c.fetchone()[0]
         else:
             c.execute(
                 """
                 INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
-                VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?)
             """,
-                (
-                    user_id,
-                    amount,
-                    merchant,
-                    stripe_payment_intent_id,
-                    stripe_status,
-                    merchant_id,
-                    platform_fee,
-                    now,
-                ),
+                (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, merchant_id, now),
             )
             tx_id = c.lastrowid
         c.execute(f"SELECT * FROM transactions WHERE id = {PH}", (tx_id,))
@@ -126,8 +106,7 @@ def get_merchant_stats(merchant_id: int) -> dict:
                 """
                 SELECT
                     COUNT(*) as tx_count,
-                    COALESCE(SUM(amount), 0) as total_processed,
-                    COALESCE(SUM(platform_fee), 0) as total_fees
+                    COALESCE(SUM(amount), 0) as total_processed
                 FROM transactions
                 WHERE merchant_id = %s AND LEFT(created_at, 7) = %s
             """,
@@ -138,15 +117,14 @@ def get_merchant_stats(merchant_id: int) -> dict:
                 """
                 SELECT
                     COUNT(*) as tx_count,
-                    COALESCE(SUM(amount), 0) as total_processed,
-                    COALESCE(SUM(platform_fee), 0) as total_fees
+                    COALESCE(SUM(amount), 0) as total_processed
                 FROM transactions
                 WHERE merchant_id = ? AND strftime('%Y-%m', created_at) = ?
             """,
                 (merchant_id, current_month),
             )
         row = _fetchone(c)
-        return row if row else {"tx_count": 0, "total_processed": 0.0, "total_fees": 0.0}
+        return row if row else {"tx_count": 0, "total_processed": 0.0}
 
 
 def get_merchant_recent_transactions(merchant_id: int, limit: int = 20, offset: int = 0) -> list:
@@ -154,7 +132,7 @@ def get_merchant_recent_transactions(merchant_id: int, limit: int = 20, offset: 
         c = conn.cursor()
         c.execute(
             f"""
-            SELECT t.id, t.amount, t.platform_fee, t.stripe_status, t.created_at,
+            SELECT t.id, t.amount, t.stripe_status, t.created_at,
                    u.full_name as customer_name
             FROM transactions t
             LEFT JOIN users u ON t.user_id = u.id

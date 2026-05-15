@@ -346,7 +346,7 @@
                 <tr>
                   <th>Customer</th>
                   <th>Amount</th>
-                  <th>Fee</th>
+                  <th>Tx #</th>
                   <th>Status</th>
                   <th>Date</th>
                 </tr>
@@ -356,7 +356,7 @@
                   <tr>
                     <td>${escapeHtml(tx.customer_name) || "—"}</td>
                     <td class="amount">$${Number(tx.amount).toFixed(2)}</td>
-                    <td class="fee">$${Number(tx.platform_fee || 0).toFixed(2)}</td>
+                    <td class="tx-id">#${tx.id}</td>
                     <td class="${tx.stripe_status === 'succeeded' ? 'status-ok' : 'status-fail'}">
                       ${escapeHtml(tx.stripe_status === 'succeeded' ? 'Paid' : tx.stripe_status)}
                     </td>

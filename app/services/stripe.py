@@ -40,22 +40,7 @@ def create_customer(full_name: str, email: str, payment_method_id: str) -> str:
     return customer.id
 
 
-TRANSACTION_RATE = 0.005  # 0.5% per transaction
-SCAN_FEE = 0.05  # $0.05 per scan
-MONTHLY_FEE = 29.00  # $29/month per terminal (billed separately, not per-transaction)
-
-
-def calculate_platform_fee(amount_usd: float) -> float:
-    """Calculate the per-transaction platform fee.
-
-    Returns: 0.5% of amount + $0.05 scan fee.
-
-    The $29/month terminal fee is billed separately (out-of-band via
-    Stripe Invoice or future cron) — never bundled into the per-transaction
-    application_fee_amount. See ADR-0006.
-    """
-    fee = round(amount_usd * TRANSACTION_RATE, 2) + SCAN_FEE
-    return round(fee, 2)
+MONTHLY_FEE = 99.00  # $99/month flat subscription — FingerPay's only revenue from merchants
 
 
 def charge_customer(
@@ -65,15 +50,14 @@ def charge_customer(
     merchant: str,
     idempotency_key: str = None,
     stripe_connect_id: str = None,
-    platform_fee_usd: float = None,
 ) -> dict:
     """
     Charge a saved customer off-session (no phone/card present).
     amount_usd is in dollars (e.g. 12.50).
     idempotency_key should be stable per logical operation (e.g., tx row ID)
     so retries don't create duplicate charges.
-    If stripe_connect_id is provided, payment is routed to merchant's account
-    with platform_fee_usd deducted for FingerPay.
+    If stripe_connect_id is provided, the full amount is routed to the
+    merchant's Connect account — FingerPay takes no per-transaction cut.
     Returns the PaymentIntent object as a dict.
     """
     params = dict(
@@ -87,8 +71,7 @@ def charge_customer(
         idempotency_key=idempotency_key or str(uuid.uuid4()),
     )
 
-    if stripe_connect_id and platform_fee_usd is not None:
-        params["application_fee_amount"] = round(platform_fee_usd * 100)
+    if stripe_connect_id:
         params["transfer_data"] = {"destination": stripe_connect_id}
 
     intent = stripe.PaymentIntent.create(**params)

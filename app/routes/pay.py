@@ -24,7 +24,7 @@ from app.db import (
     update_transaction_result,
 )
 from app.services.jwt import verify_access_token
-from app.services.stripe import calculate_platform_fee, charge_customer
+from app.services.stripe import charge_customer
 
 logger = logging.getLogger("fingerpay.pay")
 router = APIRouter()
@@ -65,12 +65,10 @@ async def pay(
             detail="No payment method on file. User must re-enroll with a payment method.",
         )
 
-    # ── Look up merchant and calculate fees ───────────────────────────────
+    # ── Look up merchant ──────────────────────────────────────────────────
     merchant_id = payload.get("merchant_id")
     merchant = get_merchant_by_id(merchant_id) if merchant_id else None
     merchant_name = merchant["business_name"] if merchant else "FingerPay"
-
-    platform_fee = calculate_platform_fee(body.amount)
 
     # ── Step 1: Insert pending transaction BEFORE charging ────────────────
     pending_tx = create_pending_transaction(
@@ -78,7 +76,6 @@ async def pay(
         amount=body.amount,
         merchant=merchant_name,
         merchant_id=merchant_id,
-        platform_fee=platform_fee,
     )
 
     # ── Step 2: Charge via Stripe ─────────────────────────────────────────
@@ -91,9 +88,6 @@ async def pay(
             merchant=merchant_name,
             idempotency_key=f"fingerpay-tx-{pending_tx['id']}",
             stripe_connect_id=merchant.get("stripe_connect_id") if merchant else None,
-            platform_fee_usd=(
-                platform_fee if merchant and merchant.get("stripe_connect_id") else None
-            ),
         )
     except Exception as e:
         # Stripe rejected — update the pending row to failed
