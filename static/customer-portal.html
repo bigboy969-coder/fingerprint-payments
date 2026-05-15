@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FingerPay — My Account</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #000;
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .logo { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .tagline { font-size: 13px; color: #666; margin-bottom: 40px; }
+
+    .card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 16px;
+      padding: 32px;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .card h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .card p  { font-size: 14px; color: #666; margin-bottom: 28px; }
+
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+    .field input {
+      width: 100%;
+      padding: 12px 14px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: white;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+      letter-spacing: 2px;
+    }
+    .field input:focus { border-color: #555; }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: white;
+      color: black;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: opacity 0.2s;
+    }
+    .btn:hover  { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-danger {
+      background: #c0392b;
+      color: white;
+      margin-top: 12px;
+    }
+    .btn-danger:hover { background: #a93226; opacity: 1; }
+
+    .message {
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .message.error   { background: #2a1010; border: 1px solid #5a1a1a; color: #ff6b6b; }
+    .message.success { background: #0f2a15; border: 1px solid #1a5a2a; color: #5aff8a; }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #1e1e1e;
+      font-size: 14px;
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-row .label { color: #666; }
+    .info-row .value { color: #eee; text-align: right; }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #1e1e1e;
+      margin: 24px 0;
+    }
+
+    .danger-zone h2 { font-size: 15px; color: #ff6b6b; margin-bottom: 8px; }
+    .danger-zone p  { font-size: 13px; color: #666; margin-bottom: 0; }
+  </style>
+</head>
+<body>
+
+  <div class="logo">FingerPay</div>
+  <div class="tagline">Manage your fingerprint payment account</div>
+
+  <!-- Step 1: Enter email -->
+  <div class="card" id="email-view">
+    <h1>My Account</h1>
+    <p>Enter your enrolled email to access your account.</p>
+
+    <div class="message error"   id="email-error"></div>
+    <div class="message success" id="email-success"></div>
+
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="email-input" placeholder="you@example.com"
+             onkeydown="if(event.key==='Enter') sendCode()" style="letter-spacing:normal;" />
+    </div>
+    <button class="btn" id="email-btn" onclick="sendCode()">Send Verification Code</button>
+  </div>
+
+  <!-- Step 2: Enter code -->
+  <div class="card" id="code-view" style="display:none;">
+    <h1>Enter Code</h1>
+    <p id="code-desc">We sent a 6-digit code to your email.</p>
+
+    <div class="message error"   id="code-error"></div>
+
+    <div class="field">
+      <label>Verification Code</label>
+      <input type="text" id="code-input" placeholder="000000" maxlength="6"
+             inputmode="numeric" onkeydown="if(event.key==='Enter') verifyCode()" />
+    </div>
+    <button class="btn" id="code-btn" onclick="verifyCode()">Verify</button>
+  </div>
+
+  <!-- Step 3: Account info + delete -->
+  <div class="card" id="account-view" style="display:none;">
+    <h1>My Account</h1>
+    <p>Your enrolled information.</p>
+
+    <div id="account-info"></div>
+
+    <hr class="divider" />
+
+    <div class="danger-zone">
+      <h2>Delete My Account</h2>
+      <p>Permanently deletes your fingerprint, payment info, and all transaction history. This cannot be undone.</p>
+      <button class="btn btn-danger" id="delete-btn" onclick="confirmDelete()">Delete My Account</button>
+    </div>
+
+    <div class="message error"   id="delete-error"   style="margin-top:16px;"></div>
+    <div class="message success" id="delete-success" style="margin-top:16px;"></div>
+  </div>
+
+  <script>
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    let verifiedEmail = "";
+    let verifiedCode  = "";
+
+    async function sendCode() {
+      const btn    = document.getElementById("email-btn");
+      const errEl  = document.getElementById("email-error");
+      const okEl   = document.getElementById("email-success");
+      errEl.style.display = "none";
+      okEl.style.display  = "none";
+
+      const email = document.getElementById("email-input").value.trim();
+      if (!email) {
+        errEl.textContent = "Please enter your email address.";
+        errEl.style.display = "block";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Sending...";
+
+      try {
+        const res  = await fetch("/customers/request-access", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+
+        verifiedEmail = email;
+        document.getElementById("email-view").style.display = "none";
+        document.getElementById("code-view").style.display  = "block";
+        document.getElementById("code-desc").textContent =
+          `We sent a 6-digit code to ${email}. Check your inbox.`;
+      } catch {
+        errEl.textContent = "Network error. Please try again.";
+        errEl.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "Send Verification Code";
+      }
+    }
+
+    async function verifyCode() {
+      const btn   = document.getElementById("code-btn");
+      const errEl = document.getElementById("code-error");
+      errEl.style.display = "none";
+
+      const code = document.getElementById("code-input").value.trim();
+      if (code.length !== 6) {
+        errEl.textContent = "Please enter the 6-digit code.";
+        errEl.style.display = "block";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Verifying...";
+
+      try {
+        const res  = await fetch("/customers/verify-code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: verifiedEmail, code }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          errEl.textContent = data.detail || "Invalid code.";
+          errEl.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "Verify";
+          return;
+        }
+
+        verifiedCode = code;
+        showAccount(data.customer);
+      } catch {
+        errEl.textContent = "Network error. Please try again.";
+        errEl.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "Verify";
+      }
+    }
+
+    function showAccount(customer) {
+      document.getElementById("code-view").style.display    = "none";
+      document.getElementById("account-view").style.display = "block";
+
+      const enrolled = new Date(customer.enrolled_at).toLocaleDateString("en-US", {
+        year: "numeric", month: "long", day: "numeric"
+      });
+
+      document.getElementById("account-info").innerHTML = `
+        <div class="info-row">
+          <span class="label">Name</span>
+          <span class="value">${escapeHtml(customer.full_name)}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Email</span>
+          <span class="value">${escapeHtml(customer.email)}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Phone</span>
+          <span class="value">${escapeHtml(customer.phone) || "—"}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Enrolled</span>
+          <span class="value">${enrolled}</span>
+        </div>
+      `;
+    }
+
+    async function confirmDelete() {
+      const confirmed = window.confirm(
+        "Are you sure? This will permanently delete your fingerprint, payment info, and all transaction history. This cannot be undone."
+      );
+      if (!confirmed) return;
+
+      const btn    = document.getElementById("delete-btn");
+      const errEl  = document.getElementById("delete-error");
+      const okEl   = document.getElementById("delete-success");
+      errEl.style.display = "none";
+      okEl.style.display  = "none";
+
+      btn.disabled = true;
+      btn.textContent = "Deleting...";
+
+      try {
+        const res  = await fetch("/customers/delete-account", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: verifiedEmail, code: verifiedCode }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          errEl.textContent = data.detail || "Failed to delete account.";
+          errEl.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "Delete My Account";
+          return;
+        }
+
+        okEl.textContent = "Your account has been permanently deleted.";
+        okEl.style.display = "block";
+        document.getElementById("delete-btn").style.display = "none";
+        document.getElementById("account-info").innerHTML = "";
+        document.querySelector(".danger-zone p").style.display = "none";
+        document.querySelector(".danger-zone h2").textContent = "Account Deleted";
+      } catch {
+        errEl.textContent = "Network error. Please try again.";
+        errEl.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "Delete My Account";
+      }
+    }
+  </script>
+</body>
+</html>

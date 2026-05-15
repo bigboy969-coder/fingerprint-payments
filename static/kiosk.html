@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FingerPay — Kiosk</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #000;
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .logo { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .tagline { font-size: 15px; color: #888; margin-bottom: 48px; }
+
+    /* ── Waiting / enrollment ── */
+    #waiting-view .qr-box {
+      background: white;
+      border-radius: 20px;
+      padding: 20px;
+      display: inline-block;
+      margin-bottom: 24px;
+    }
+    #waiting-view h2 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    #waiting-view p { font-size: 14px; color: #888; margin-bottom: 32px; }
+
+    .new-btn {
+      padding: 12px 28px;
+      background: #222;
+      color: white;
+      border: 1px solid #444;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .new-btn:hover { background: #333; }
+
+    /* ── Enrollment scan ── */
+    #scan-view { display: none; }
+    #scan-view .finger-icon { font-size: 80px; margin-bottom: 24px; animation: pulse 1.5s infinite; }
+    #scan-view h2 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
+    #scan-view p { font-size: 15px; color: #888; margin-bottom: 32px; }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.08); opacity: 0.7; }
+    }
+
+    .upload-label {
+      display: inline-block;
+      padding: 14px 32px;
+      background: white;
+      color: black;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #fp-input { display: none; }
+
+    /* ── Confirm scan ── */
+    #confirm-view { display: none; }
+    #confirm-view .finger-icon { font-size: 80px; margin-bottom: 24px; animation: pulse 1.5s infinite; }
+    #confirm-view h2 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
+    #confirm-view p { font-size: 15px; color: #aaa; margin-bottom: 32px; }
+
+    /* ── Enrollment complete ── */
+    #complete-view { display: none; }
+    #complete-view .icon { font-size: 72px; margin-bottom: 20px; }
+    #complete-view h2 { font-size: 26px; font-weight: 700; margin-bottom: 10px; }
+    #complete-view p { font-size: 15px; color: #888; margin-bottom: 32px; }
+
+    /* ── Payment request ── */
+    #payment-view { display: none; }
+    #payment-view .amount {
+      font-size: 72px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      letter-spacing: -2px;
+    }
+    #payment-view .pay-label { font-size: 18px; color: #888; margin-bottom: 40px; }
+    #payment-view .finger-icon { font-size: 80px; margin-bottom: 20px; animation: pulse 1.5s infinite; }
+    #payment-view h2 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
+    #payment-view p { font-size: 15px; color: #888; margin-bottom: 32px; }
+    .cancel-btn {
+      padding: 10px 24px;
+      background: transparent;
+      color: #555;
+      border: 1px solid #333;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+    .cancel-btn:hover { color: #aaa; border-color: #555; }
+
+    /* ── Payment success ── */
+    #payment-success-view { display: none; }
+    #payment-success-view .icon { font-size: 80px; margin-bottom: 20px; }
+    #payment-success-view .amount { font-size: 52px; font-weight: 800; color: #4ade80; margin-bottom: 8px; }
+    #payment-success-view h2 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    #payment-success-view p { font-size: 15px; color: #888; }
+
+    /* ── Payment failed ── */
+    #payment-failed-view { display: none; }
+    #payment-failed-view .icon { font-size: 72px; margin-bottom: 20px; }
+    #payment-failed-view h2 { font-size: 24px; font-weight: 700; margin-bottom: 10px; color: #ff6b6b; }
+    #payment-failed-view p { font-size: 15px; color: #888; margin-bottom: 32px; }
+
+    /* ── Connection status dot ── */
+    .conn-status {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #555;
+    }
+    .conn-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #555;
+    }
+    .conn-dot.connected { background: #4ade80; }
+    .conn-dot.disconnected { background: #ff6b6b; }
+  </style>
+</head>
+<body>
+
+  <div class="logo">FingerPay</div>
+  <div class="tagline">Pay with your finger</div>
+
+  <!-- State 1: QR code enrollment -->
+  <div id="waiting-view">
+    <div class="qr-box"><div id="qrcode"></div></div>
+    <h2>Scan to enroll your card</h2>
+    <p>Open the camera on your phone and scan this QR code.</p>
+    <button class="new-btn" onclick="newSession()">New Customer</button>
+  </div>
+
+  <!-- State 2: Enrollment finger scan -->
+  <div id="scan-view">
+    <div class="finger-icon">👆</div>
+    <h2>Place your finger on the scanner</h2>
+    <p>Card details received. Scan to complete enrollment.</p>
+    <label class="upload-label" for="fp-input">Upload Fingerprint (Test)</label>
+    <input type="file" id="fp-input" accept="image/*" onchange="submitFingerprint(this)" />
+  </div>
+
+  <!-- State 3: Confirm scan -->
+  <div id="confirm-view">
+    <div class="finger-icon">👆</div>
+    <h2>Scan again to confirm</h2>
+    <p>Enrolled! Now scan your finger one more time to verify it works.</p>
+    <label class="upload-label" for="fp-confirm-input">Scan Finger (Confirm)</label>
+    <input type="file" id="fp-confirm-input" accept="image/*" onchange="confirmFingerprint(this)" />
+  </div>
+
+  <!-- State 4: Enrollment complete -->
+  <div id="complete-view">
+    <div class="icon">✅</div>
+    <h2>You're in, <span id="success-name"></span>!</h2>
+    <p>Fingerprint confirmed. Just scan your finger at checkout to pay.</p>
+    <button class="new-btn" onclick="newSession()" style="margin-top:8px">Next Customer</button>
+  </div>
+
+  <!-- State 5: Payment request from POS -->
+  <div id="payment-view">
+    <div class="amount" id="pay-amount"></div>
+    <div class="pay-label">Total Due</div>
+    <div class="finger-icon">👆</div>
+    <h2>Scan your finger to pay</h2>
+    <p>Place your finger on the scanner to authorize payment.</p>
+    <label class="upload-label" for="fp-pay-input">Scan Finger (Test)</label>
+    <input type="file" id="fp-pay-input" accept="image/*" onchange="submitPaymentScan(this)" />
+    <br>
+    <button class="cancel-btn" onclick="cancelPayment()">Cancel</button>
+  </div>
+
+  <!-- State 6: Payment success -->
+  <div id="payment-success-view">
+    <div class="icon">✅</div>
+    <div class="amount" id="paid-amount"></div>
+    <h2>Payment Successful!</h2>
+    <p id="paid-name"></p>
+  </div>
+
+  <!-- State 7: Payment failed -->
+  <div id="payment-failed-view">
+    <div class="icon">❌</div>
+    <h2>Payment Failed</h2>
+    <p id="failed-reason">Please try again or use another payment method.</p>
+    <button class="new-btn" onclick="resetToIdle()" style="margin-top:24px">Back</button>
+  </div>
+
+  <!-- Connection status -->
+  <div class="conn-status">
+    <div class="conn-dot" id="conn-dot"></div>
+    <span id="conn-label">Not connected</span>
+  </div>
+
+  <script>
+    let currentSessionId = null;
+    let pollInterval = null;
+    let currentTransactionId = null;
+    let currentPayAmount = null;
+    let ws = null;
+    let wsReconnectTimer = null;
+
+    const ALL_VIEWS = ["waiting-view","scan-view","confirm-view","complete-view",
+                       "payment-view","payment-success-view","payment-failed-view"];
+
+    // ── WebSocket setup ───────────────────────────────────────────────────────
+    const apiKey = new URLSearchParams(window.location.search).get("api_key");
+
+    function connectWebSocket() {
+      if (!apiKey) return; // no API key = no WebSocket (still works for enrollment)
+
+      const protocol = location.protocol === "https:" ? "wss" : "ws";
+      // API key is NOT in the URL — sent as first message after connect.
+      const wsUrl = `${protocol}://${location.host}/ws/terminal`;
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        // Authenticate via first message (API key never in URL/logs)
+        ws.send(JSON.stringify({ type: "auth", api_key: apiKey }));
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "auth_ok") {
+          setConnected(true);
+          clearTimeout(wsReconnectTimer);
+          // Keep alive with ping every 30s
+          setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({type:"ping"})); }, 30000);
+        } else if (msg.type === "payment_request") {
+          currentTransactionId = msg.transaction_id;
+          currentPayAmount = msg.amount;
+          showPaymentRequest(msg.amount);
+        }
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        wsReconnectTimer = setTimeout(connectWebSocket, 5000); // retry in 5s
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    function setConnected(connected) {
+      document.getElementById("conn-dot").className = "conn-dot " + (connected ? "connected" : "disconnected");
+      document.getElementById("conn-label").textContent = connected ? "Terminal connected" : "Reconnecting...";
+    }
+
+    // ── Payment flow ──────────────────────────────────────────────────────────
+    function showPaymentRequest(amount) {
+      clearInterval(pollInterval); // pause enrollment polling
+      document.getElementById("pay-amount").textContent = "$" + Number(amount).toFixed(2);
+      document.getElementById("fp-pay-input").value = "";
+      showView("payment-view");
+    }
+
+    async function submitPaymentScan(input) {
+      const file = input.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      // Step 1: Authenticate fingerprint
+      let authData;
+      try {
+        const authRes = await fetch("/authenticate", {
+          method: "POST",
+          headers: { "x-api-key": apiKey },
+          body: formData,
+        });
+        authData = await authRes.json();
+        if (!authRes.ok) {
+          showPaymentFailed(authData.detail || "Fingerprint not recognized.");
+          return;
+        }
+      } catch (e) {
+        showPaymentFailed("Connection error. Please try again.");
+        return;
+      }
+
+      // Step 2: Charge
+      try {
+        const payRes = await fetch("/pay", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${authData.access_token}`,
+          },
+          body: JSON.stringify({ amount: currentPayAmount, merchant: "POS Terminal" }),
+        });
+        const payData = await payRes.json();
+
+        if (!payRes.ok) {
+          showPaymentFailed(payData.detail || "Payment failed.");
+          return;
+        }
+
+        // Notify POS via WebSocket
+        if (ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: "payment_complete",
+            transaction_id: currentTransactionId,
+            amount: currentPayAmount,
+          }));
+        }
+
+        showPaymentSuccess(currentPayAmount, authData.user_id);
+
+      } catch (e) {
+        showPaymentFailed("Payment error. Please try again.");
+      }
+    }
+
+    function showPaymentSuccess(amount, userId) {
+      document.getElementById("paid-amount").textContent = "$" + Number(amount).toFixed(2);
+      document.getElementById("paid-name").textContent = "Thank you!";
+      showView("payment-success-view");
+      setTimeout(resetToIdle, 4000); // auto reset after 4 seconds
+    }
+
+    function showPaymentFailed(reason) {
+      document.getElementById("failed-reason").textContent = reason;
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({
+          type: "payment_failed",
+          transaction_id: currentTransactionId,
+          reason,
+        }));
+      }
+      showView("payment-failed-view");
+    }
+
+    function cancelPayment() {
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "payment_failed", transaction_id: currentTransactionId, reason: "Cancelled by customer." }));
+      }
+      resetToIdle();
+    }
+
+    function resetToIdle() {
+      currentTransactionId = null;
+      currentPayAmount = null;
+      newSession();
+    }
+
+    // ── Enrollment flow ───────────────────────────────────────────────────────
+    async function newSession() {
+      clearInterval(pollInterval);
+      showView("waiting-view");
+
+      const res = await fetch("/enroll/session", { method: "POST" });
+      const data = await res.json();
+      currentSessionId = data.session_id;
+
+      const host = window.location.host;
+      const protocol = location.protocol;
+      const enrollUrl = `${protocol}//${host}${data.enroll_url}`;
+
+      document.getElementById("qrcode").innerHTML = "";
+      new QRCode(document.getElementById("qrcode"), {
+        text: enrollUrl, width: 200, height: 200,
+        colorDark: "#000", colorLight: "#fff",
+      });
+
+      pollInterval = setInterval(pollStatus, 2000);
+    }
+
+    async function pollStatus() {
+      if (!currentSessionId) return;
+      const res = await fetch(`/enroll/status/${currentSessionId}`);
+      const data = await res.json();
+      if (data.status === "pending_scan") {
+        clearInterval(pollInterval);
+        showView("scan-view");
+      } else if (data.status === "complete") {
+        clearInterval(pollInterval);
+        showView("complete-view");
+      }
+    }
+
+    async function submitFingerprint(input) {
+      const file = input.files[0];
+      if (!file || !currentSessionId) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/enroll/complete/${currentSessionId}`, { method: "POST", body: formData });
+      if (res.ok) {
+        showView("confirm-view");
+      } else {
+        const data = await res.json();
+        alert("Error: " + (data.detail || "Enrollment failed."));
+      }
+    }
+
+    async function confirmFingerprint(input) {
+      const file = input.files[0];
+      if (!file || !currentSessionId) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/enroll/verify/${currentSessionId}`, { method: "POST", body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById("success-name").textContent = data.name;
+        showView("complete-view");
+      } else {
+        const data = await res.json();
+        alert("Scan failed: " + (data.detail || "Try again."));
+        input.value = "";
+      }
+    }
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+    function showView(id) {
+      ALL_VIEWS.forEach(v => {
+        document.getElementById(v).style.display = v === id ? "block" : "none";
+      });
+    }
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    connectWebSocket();
+    newSession();
+  </script>
+</body>
+</html>

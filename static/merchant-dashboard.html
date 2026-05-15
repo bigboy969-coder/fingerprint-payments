@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FingerPay for Business — Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #000;
+      color: white;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 900px;
+      margin: 0 auto 32px;
+    }
+    .header .logo { font-size: 18px; font-weight: 700; }
+    .header .right { display: flex; align-items: center; gap: 16px; }
+    .header .biz-name { font-size: 14px; color: #666; }
+    .logout-btn {
+      padding: 8px 16px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      color: #aaa;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .logout-btn:hover { color: white; border-color: #555; }
+
+    .container { max-width: 900px; margin: 0 auto; }
+
+    /* ── Stats ── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .stat-card .label { font-size: 12px; color: #555; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; }
+    .stat-card .sub { font-size: 12px; color: #555; margin-top: 4px; }
+
+    /* ── Section ── */
+    .section {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .section h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ── API Key ── */
+    .api-key-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      padding: 12px 16px;
+    }
+    .api-key-row code {
+      flex: 1;
+      font-family: monospace;
+      font-size: 13px;
+      color: #aaa;
+      word-break: break-all;
+    }
+    .copy-btn {
+      padding: 6px 14px;
+      background: #222;
+      border: 1px solid #444;
+      color: white;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .copy-btn:hover { background: #333; }
+    .regen-btn {
+      padding: 8px 16px;
+      background: transparent;
+      border: 1px solid #333;
+      color: #888;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      margin-top: 12px;
+    }
+    .regen-btn:hover { border-color: #555; color: white; }
+
+    /* ── Connect ── */
+    .connect-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .connect-status .info p { font-size: 14px; color: #888; margin-top: 4px; }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge.active { background: #0a2a0a; color: #4ade80; border: 1px solid #1a4a1a; }
+    .badge.pending { background: #2a1f00; color: #f59e0b; border: 1px solid #4a3500; }
+    .connect-btn {
+      padding: 10px 20px;
+      background: white;
+      color: black;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .connect-btn:hover { opacity: 0.9; }
+    .connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Customers ── */
+    .customer-count {
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 16px;
+    }
+
+    /* ── Transactions ── */
+    .tx-table { width: 100%; border-collapse: collapse; }
+    .tx-table th {
+      text-align: left;
+      font-size: 12px;
+      color: #555;
+      padding: 0 0 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tx-table td {
+      padding: 12px 0;
+      font-size: 14px;
+      border-top: 1px solid #1a1a1a;
+    }
+    .tx-table td.amount { font-weight: 600; }
+    .tx-table td.fee { color: #555; font-size: 13px; }
+    .tx-table td.status-ok { color: #4ade80; }
+    .tx-table td.status-fail { color: #ff6b6b; }
+    .tx-table td.date { color: #555; font-size: 12px; }
+    .empty { text-align: center; color: #444; padding: 32px 0; font-size: 14px; }
+
+    /* ── New API key modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+      display: none;
+    }
+    .modal {
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 16px;
+      padding: 28px;
+      max-width: 420px;
+      width: 90%;
+    }
+    .modal h3 { font-size: 18px; margin-bottom: 8px; }
+    .modal p { font-size: 14px; color: #666; margin-bottom: 16px; }
+    .modal code {
+      display: block;
+      font-family: monospace;
+      font-size: 13px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 12px;
+      word-break: break-all;
+      margin-bottom: 12px;
+      color: white;
+    }
+    .modal .warning { font-size: 12px; color: #f59e0b; margin-bottom: 20px; }
+    .modal .close-btn {
+      width: 100%;
+      padding: 12px;
+      background: white;
+      color: black;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    @media (max-width: 600px) {
+      .stats { grid-template-columns: 1fr; }
+      .header { flex-direction: column; align-items: flex-start; gap: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">FingerPay for Business</div>
+    <div class="right">
+      <span class="biz-name" id="biz-name"></span>
+      <button class="logout-btn" onclick="logout()">Sign Out</button>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat-card">
+        <div class="label">Transactions This Month</div>
+        <div class="value" id="tx-count">—</div>
+        <div class="sub">Successful payments</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Volume This Month</div>
+        <div class="value" id="tx-volume">—</div>
+        <div class="sub">Total processed</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Fees This Month</div>
+        <div class="value" id="tx-fees">—</div>
+        <div class="sub">Platform fees paid</div>
+      </div>
+    </div>
+
+    <!-- API Key -->
+    <div class="section">
+      <h2>API Key</h2>
+      <div class="api-key-row">
+        <code id="api-key-display">••••••••••••••••••••••••••••••••</code>
+        <button class="copy-btn" onclick="copyKey()">Copy</button>
+      </div>
+      <p style="font-size:12px;color:#444;margin-top:10px;">Your API key is hashed for security — use the one you saved at signup. You can regenerate it below.</p>
+      <button class="regen-btn" onclick="regenKey()">Regenerate API Key</button>
+    </div>
+
+    <!-- Stripe Connect -->
+    <div class="section">
+      <h2>Payout Account</h2>
+      <div class="connect-status">
+        <div class="info">
+          <div id="connect-badge" class="badge pending">Not Connected</div>
+          <p id="connect-desc">Connect your bank account to receive payouts automatically.</p>
+        </div>
+        <button class="connect-btn" id="connect-btn" onclick="startConnect()">Connect Bank Account</button>
+      </div>
+    </div>
+
+    <!-- Customers -->
+    <div class="section">
+      <h2>Customers</h2>
+      <div id="customer-list"></div>
+    </div>
+
+    <!-- Recent Transactions -->
+    <div class="section">
+      <h2>Recent Transactions</h2>
+      <div id="tx-list"></div>
+    </div>
+
+  </div>
+
+  <!-- New API Key Modal -->
+  <div class="modal-overlay" id="key-modal">
+    <div class="modal">
+      <h3>New API Key Generated</h3>
+      <p>Copy this key now — it will not be shown again.</p>
+      <code id="new-key-value"></code>
+      <div class="warning">Store this somewhere safe. Your old key no longer works.</div>
+      <button class="close-btn" onclick="closeModal()">I've saved my key</button>
+    </div>
+  </div>
+
+  <script>
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Auth is via HttpOnly cookie — no localStorage, no Authorization header needed.
+    // The cookie is sent automatically by the browser on same-origin requests.
+
+    async function loadDashboard() {
+      try {
+        const res = await fetch("/merchants/me");
+        if (res.status === 401) { logout(); return; }
+        const data = await res.json();
+
+        document.getElementById("biz-name").textContent = data.business_name;
+        document.title = `${data.business_name} — FingerPay`;
+
+        // Stats
+        const stats = data.stats;
+        document.getElementById("tx-count").textContent = stats.tx_count;
+        document.getElementById("tx-volume").textContent = "$" + Number(stats.total_processed).toFixed(2);
+        document.getElementById("tx-fees").textContent = "$" + Number(stats.total_fees).toFixed(2);
+
+        // Connect status
+        const badge = document.getElementById("connect-badge");
+        const desc = document.getElementById("connect-desc");
+        const btn = document.getElementById("connect-btn");
+        if (data.stripe_connect_status === "active") {
+          badge.textContent = "Connected";
+          badge.className = "badge active";
+          desc.textContent = "Your bank account is connected. Payouts are automatic.";
+          btn.textContent = "Manage Payouts";
+          btn.disabled = true;
+        }
+
+        // Transactions
+        const txList = document.getElementById("tx-list");
+        if (!data.recent_transactions || data.recent_transactions.length === 0) {
+          txList.innerHTML = '<div class="empty">No transactions yet.</div>';
+        } else {
+          txList.innerHTML = `
+            <table class="tx-table">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Amount</th>
+                  <th>Fee</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.recent_transactions.map(tx => `
+                  <tr>
+                    <td>${escapeHtml(tx.customer_name) || "—"}</td>
+                    <td class="amount">$${Number(tx.amount).toFixed(2)}</td>
+                    <td class="fee">$${Number(tx.platform_fee || 0).toFixed(2)}</td>
+                    <td class="${tx.stripe_status === 'succeeded' ? 'status-ok' : 'status-fail'}">
+                      ${escapeHtml(tx.stripe_status === 'succeeded' ? 'Paid' : tx.stripe_status)}
+                    </td>
+                    <td class="date">${new Date(tx.created_at).toLocaleDateString()}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          `;
+        }
+
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function startConnect() {
+      const btn = document.getElementById("connect-btn");
+      btn.disabled = true;
+      btn.textContent = "Loading...";
+
+      try {
+        const res = await fetch("/merchants/connect", { method: "POST" });
+        const data = await res.json();
+        if (res.ok) {
+          window.location.href = data.onboarding_url;
+        } else {
+          alert(data.detail || "Could not start Connect onboarding.");
+          btn.disabled = false;
+          btn.textContent = "Connect Bank Account";
+        }
+      } catch (e) {
+        alert("Network error. Please try again.");
+        btn.disabled = false;
+        btn.textContent = "Connect Bank Account";
+      }
+    }
+
+    async function regenKey() {
+      if (!confirm("Are you sure? Your current API key will stop working immediately.")) return;
+
+      const res = await fetch("/merchants/regenerate-key", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        document.getElementById("new-key-value").textContent = data.api_key;
+        document.getElementById("key-modal").style.display = "flex";
+      } else {
+        alert(data.detail || "Failed to regenerate key.");
+      }
+    }
+
+    function copyKey() {
+      const display = document.getElementById("api-key-display").textContent;
+      if (display.includes("•")) {
+        alert("Your API key is hashed for security. Use the key from your signup email, or regenerate a new one.");
+        return;
+      }
+      navigator.clipboard.writeText(display).then(() => {
+        const btn = document.querySelector(".copy-btn");
+        btn.textContent = "Copied!";
+        setTimeout(() => btn.textContent = "Copy", 2000);
+      });
+    }
+
+    function closeModal() {
+      document.getElementById("key-modal").style.display = "none";
+      loadDashboard();
+    }
+
+    async function logout() {
+      await fetch("/merchants/logout", { method: "POST" });
+      window.location.href = "/business/login";
+    }
+
+    async function loadCustomers() {
+      try {
+        const res = await fetch("/merchants/customers");
+        if (!res.ok) return;
+        const data = await res.json();
+        const el = document.getElementById("customer-list");
+        if (!data.customers || data.customers.length === 0) {
+          el.innerHTML = '<div class="empty">No customers yet.</div>';
+          return;
+        }
+        el.innerHTML = `
+          <div class="customer-count">${data.customers.length} customer${data.customers.length !== 1 ? "s" : ""}</div>
+          <table class="tx-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Transactions</th>
+                <th>Total Spent</th>
+                <th>Enrolled</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.customers.map(c => `
+                <tr>
+                  <td>${escapeHtml(c.full_name)}</td>
+                  <td style="color:#666;font-size:13px;">${escapeHtml(c.email)}</td>
+                  <td>${c.total_transactions}</td>
+                  <td class="amount">$${Number(c.total_spent).toFixed(2)}</td>
+                  <td class="date">${new Date(c.enrolled_at).toLocaleDateString()}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    loadDashboard();
+    loadCustomers();
+  </script>
+</body>
+</html>
