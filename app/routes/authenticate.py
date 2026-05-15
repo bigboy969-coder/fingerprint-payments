@@ -2,32 +2,41 @@
 FingerPay — Authenticate Route
 ================================
 POST /authenticate
-Captures a fingerprint from the reader, matches it against enrolled users,
-and returns a short-lived JWT. Requires a valid merchant API key.
+Accepts a base64-encoded verification feature blob from the POS terminal,
+matches it server-side via BFMatcher, and returns a short-lived JWT.
+Requires a valid merchant API key.
 """
 
+import base64
+
 from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.db import find_user_by_fingerprint
 from app.routes.deps import verify_merchant_api_key
-from app.services.biometrics import capture_verification_features
 from app.services.jwt import create_access_token
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 
+class AuthenticateBody(BaseModel):
+    features: str  # base64-encoded 318-byte verification feature blob from the terminal
+
+
 @router.post("/authenticate")
 @limiter.limit("10/minute")
 async def authenticate(
     request: Request,
+    body: AuthenticateBody,
     x_api_key: str = Header(..., description="Merchant API key"),
 ):
     """
-    Capture a fingerprint from the reader at the merchant terminal.
-    Returns a JWT access token if the fingerprint matches an enrolled user.
+    Accepts a verification feature blob captured by the POS terminal via DP SDK.
+    Matches server-side using BFMatcher — no DLL dependency on the server.
+    Returns a short-lived JWT on match.
     """
     try:
         merchant = verify_merchant_api_key(x_api_key)
@@ -35,10 +44,12 @@ async def authenticate(
         raise HTTPException(status_code=401, detail="Invalid merchant API key.")
 
     try:
-        features = capture_verification_features(timeout=15)
+        features = base64.b64decode(body.features)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid features encoding.")
+
+    try:
         result = find_user_by_fingerprint(features)
-    except TimeoutError:
-        raise HTTPException(status_code=408, detail="No finger detected. Please try again.")
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

@@ -23,7 +23,7 @@ from app.db import (
     get_session,
     save_session_form,
 )
-from app.services.biometrics import capture_verification_features
+from app.services.biometrics import ENROLL_FEATURE_SIZE
 from app.services.stripe import create_customer
 
 router = APIRouter(prefix="/enroll")
@@ -94,14 +94,15 @@ async def start_enrollment(body: EnrollFormData):
 
 
 class EnrollCompleteBody(BaseModel):
-    template: str  # base64-encoded template bytes from the POS terminal
+    feature_blobs: list[str]  # 4 base64-encoded 318-byte pre-reg feature blobs from the terminal
 
 
 @router.post("/complete/{session_id}")
 async def complete_enrollment(session_id: str, body: EnrollCompleteBody):
     """
-    Accepts a base64-encoded fingerprint template from the POS terminal.
-    The POS captures scans locally using the DP SDK and sends the result here.
+    Accepts 4 base64-encoded pre-reg feature blobs from the POS terminal.
+    The terminal captures and extracts features locally via DP SDK; matching
+    happens server-side via BFMatcher.
     """
     try:
         session = get_session(session_id)
@@ -118,17 +119,26 @@ async def complete_enrollment(session_id: str, body: EnrollCompleteBody):
             ),
         )
 
+    if len(body.feature_blobs) != 4:
+        raise HTTPException(status_code=400, detail="Exactly 4 feature blobs required.")
+
     try:
-        template = base64.b64decode(body.template)
+        feature_blobs = [base64.b64decode(b) for b in body.feature_blobs]
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid template encoding.")
+        raise HTTPException(status_code=400, detail="Invalid blob encoding.")
+
+    if any(len(b) != ENROLL_FEATURE_SIZE for b in feature_blobs):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Each feature blob must be {ENROLL_FEATURE_SIZE} bytes.",
+        )
 
     try:
         user = enroll_user(
             full_name=session["full_name"],
             email=session["email"],
             phone=session["phone"],
-            descriptor=template,
+            feature_blobs=feature_blobs,
             stripe_customer_id=session["stripe_customer_id"],
             stripe_payment_method_id=session["stripe_payment_method_id"],
         )
@@ -141,10 +151,15 @@ async def complete_enrollment(session_id: str, body: EnrollCompleteBody):
     return {"success": True, "user": user}
 
 
+class VerifyBody(BaseModel):
+    features: str  # base64-encoded 318-byte verification feature blob from the terminal
+
+
 @router.post("/verify/{session_id}")
-async def verify_enrollment(session_id: str):
+async def verify_enrollment(session_id: str, body: VerifyBody):
     """
-    Captures a second fingerprint scan to confirm enrollment quality.
+    Accepts a base64-encoded verification feature blob from the terminal and
+    confirms the newly enrolled fingerprint matches server-side via BFMatcher.
     """
     try:
         session = get_session(session_id)
@@ -159,10 +174,12 @@ async def verify_enrollment(session_id: str):
         raise HTTPException(status_code=400, detail="User not found in session.")
 
     try:
-        features = capture_verification_features(timeout=15)
+        features = base64.b64decode(body.features)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid features encoding.")
+
+    try:
         result = find_user_by_fingerprint(features)
-    except TimeoutError:
-        raise HTTPException(status_code=408, detail="No finger detected. Please try again.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

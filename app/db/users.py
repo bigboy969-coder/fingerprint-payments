@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from app.config import DATABASE_URL
 from app.db.connection import PH, _fetchall, _fetchone, _get_conn, binary_wrap
-from app.services.biometrics import blob_to_desc, desc_to_blob, verify
+from app.services.biometrics import blob_to_desc, desc_to_blob, match_features
 from app.services.crypto import decrypt_descriptor, encrypt_descriptor
 
 
@@ -15,7 +15,7 @@ def enroll_user(
     full_name: str,
     email: str,
     phone: str,
-    descriptor,
+    feature_blobs: list[bytes],
     stripe_customer_id: str,
     stripe_payment_method_id: str,
 ) -> dict:
@@ -47,10 +47,12 @@ def enroll_user(
             )
             user_id = c.lastrowid
 
-        encrypted = encrypt_descriptor(desc_to_blob(descriptor))
+        encrypted = [binary_wrap(encrypt_descriptor(desc_to_blob(b))) for b in feature_blobs]
         c.execute(
-            f"INSERT INTO fingerprints (user_id, descriptor, enrolled_at) VALUES ({PH}, {PH}, {PH})",
-            (user_id, binary_wrap(encrypted), now),
+            f"""INSERT INTO fingerprints
+                (user_id, descriptor_0, descriptor_1, descriptor_2, descriptor_3, enrolled_at)
+                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH})""",
+            (user_id, encrypted[0], encrypted[1], encrypted[2], encrypted[3], now),
         )
 
         c.execute(f"SELECT * FROM users WHERE id = {PH}", (user_id,))
@@ -60,14 +62,18 @@ def enroll_user(
 def find_user_by_fingerprint(verification_features: bytes) -> dict:
     with _get_conn() as conn:
         c = conn.cursor()
-        c.execute("SELECT user_id, descriptor FROM fingerprints")
+        c.execute(
+            "SELECT user_id, descriptor_0, descriptor_1, descriptor_2, descriptor_3 FROM fingerprints"
+        )
         rows = _fetchall(c)
 
     for row in rows:
-        raw = bytes(row["descriptor"])
-        template_blob = blob_to_desc(decrypt_descriptor(raw))
         try:
-            matched = verify(verification_features, template_blob)
+            enrollment_blobs = [
+                blob_to_desc(decrypt_descriptor(bytes(row[f"descriptor_{i}"])))
+                for i in range(4)
+            ]
+            matched = match_features(verification_features, enrollment_blobs)
         except Exception:  # noqa: S112
             continue
         if matched:
@@ -89,10 +95,12 @@ def check_email_exists(email: str) -> bool:
 
 
 def get_all_fingerprints() -> list:
-    """Return all (user_id, descriptor) rows for POS local matching."""
+    """Return all fingerprint rows. The /pos/templates endpoint is now obsolete."""
     with _get_conn() as conn:
         c = conn.cursor()
-        c.execute("SELECT user_id, descriptor FROM fingerprints")
+        c.execute(
+            "SELECT user_id, descriptor_0, descriptor_1, descriptor_2, descriptor_3 FROM fingerprints"
+        )
         return _fetchall(c)
 
 

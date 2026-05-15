@@ -37,10 +37,13 @@ def _create_tables_postgres(c) -> None:
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS fingerprints (
-            id          SERIAL PRIMARY KEY,
-            user_id     INTEGER NOT NULL,
-            descriptor  BYTEA   NOT NULL,
-            enrolled_at TEXT    NOT NULL
+            id           SERIAL  PRIMARY KEY,
+            user_id      INTEGER NOT NULL,
+            descriptor_0 BYTEA   NOT NULL,
+            descriptor_1 BYTEA   NOT NULL,
+            descriptor_2 BYTEA   NOT NULL,
+            descriptor_3 BYTEA   NOT NULL,
+            enrolled_at  TEXT    NOT NULL
         )
     """)
 
@@ -127,10 +130,13 @@ def _create_tables_sqlite(c) -> None:
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS fingerprints (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     INTEGER NOT NULL,
-            descriptor  BLOB    NOT NULL,
-            enrolled_at TEXT    NOT NULL
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL,
+            descriptor_0 BLOB    NOT NULL,
+            descriptor_1 BLOB    NOT NULL,
+            descriptor_2 BLOB    NOT NULL,
+            descriptor_3 BLOB    NOT NULL,
+            enrolled_at  TEXT    NOT NULL
         )
     """)
 
@@ -239,3 +245,13 @@ def _migrate_sqlite(c) -> None:
         c.execute("ALTER TABLE enrollment_sessions ADD COLUMN user_id INTEGER")
     except Exception:
         pass
+
+    # Replace single descriptor column with 4 per-blob columns.
+    # SQLite cannot drop columns without recreating the table, so the old
+    # descriptor column is left in place on existing dev databases — it is
+    # ignored by all queries after this migration.
+    for col in ["descriptor_0", "descriptor_1", "descriptor_2", "descriptor_3"]:
+        try:
+            c.execute(f"ALTER TABLE fingerprints ADD COLUMN {col} BLOB")
+        except Exception:
+            pass

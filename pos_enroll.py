@@ -1,6 +1,8 @@
 """
 FingerPay POS — Local enrollment client.
-Captures fingerprint locally, sends template to the Render backend.
+Captures fingerprint locally via DP SDK, sends 4 raw feature blobs to the
+Render backend for server-side storage and matching. No template is built
+on the terminal.
 
 Usage: python pos_enroll.py <MERCHANT_API_KEY>
 """
@@ -13,7 +15,6 @@ import requests
 
 from app.services.biometrics import (
     SCANS_NEEDED,
-    build_template,
     capture_enrollment_features,
     enrollment_features_needed,
 )
@@ -46,7 +47,7 @@ def main(api_key: str):
             return
         time.sleep(2)
 
-    # 3. Capture fingerprint scans locally
+    # 3. Capture pre-reg feature blobs locally via DP SDK
     feature_blobs = []
     needed = SCANS_NEEDED
     scan_num = 0
@@ -66,15 +67,11 @@ def main(api_key: str):
         except (TimeoutError, ValueError) as e:
             print(f"  {e} — try again.")
 
-    # 4. Build template
-    print("\nBuilding template...")
-    template = build_template(feature_blobs)
-    print(f"Template: {len(template)} bytes")
-
-    # 5. Send template to backend
+    # 4. Send the 4 raw feature blobs to the backend for server-side storage
+    print("\nSending feature blobs to server...")
     r = requests.post(
         f"{BASE_URL}/enroll/complete/{session_id}",
-        json={"template": base64.b64encode(template).decode()},
+        json={"feature_blobs": [base64.b64encode(blob).decode() for blob in feature_blobs]},
         timeout=30,
     )
     if r.status_code == 200:

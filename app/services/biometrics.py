@@ -14,6 +14,13 @@ import ctypes
 import platform
 import threading
 
+import cv2
+import numpy as np
+
+# Hamming distance threshold for BFMatcher server-side matching.
+# Lower = stricter. Needs empirical calibration against real DP feature vectors.
+_HAMMING_THRESHOLD = 80
+
 _WINDOWS = platform.system() == "Windows"
 
 # ── Windows-only setup ────────────────────────────────────────────────────────
@@ -341,6 +348,21 @@ def verify(verification_features_blob: bytes, template_blob: bytes) -> bool:
     )
     _dpmc.MC_closeContext(mc_ctx.value)
     return bool(decision.value)
+
+
+def match_features(verification_features: bytes, enrollment_blobs: list[bytes]) -> bool:
+    """
+    Server-side 1:N BFMatcher comparison. Linux-safe — no DLL dependency.
+
+    verification_features: 318-byte DP verification feature blob from the terminal.
+    enrollment_blobs: list of 4 x 318-byte DP pre-reg feature blobs stored at enroll time.
+    Returns True if the nearest enrollment blob is within _HAMMING_THRESHOLD Hamming distance.
+    """
+    query = np.frombuffer(verification_features, dtype=np.uint8).reshape(1, -1)
+    train = np.vstack([np.frombuffer(b, dtype=np.uint8).reshape(1, -1) for b in enrollment_blobs])
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING)
+    matches = bf.match(query, train)
+    return bool(matches and matches[0].distance < _HAMMING_THRESHOLD)
 
 
 def desc_to_blob(data: bytes) -> bytes:
