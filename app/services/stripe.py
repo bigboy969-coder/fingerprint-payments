@@ -84,15 +84,11 @@ def charge_customer(
 
 
 def create_connect_account(email: str, business_name: str) -> str:
-    """Create a Stripe Express account for a merchant. Returns the account ID."""
+    """Create a Stripe Standard Connect account for a merchant. Returns the account ID."""
     account = stripe.Account.create(
-        type="express",
+        type="standard",
         email=email,
         business_profile={"name": business_name},
-        capabilities={
-            "card_payments": {"requested": True},
-            "transfers": {"requested": True},
-        },
     )
     return account.id
 
