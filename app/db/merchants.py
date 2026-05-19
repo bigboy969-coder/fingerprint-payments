@@ -84,6 +84,42 @@ def update_merchant_monthly_fee_month(merchant_id: int, month: str) -> None:
         )
 
 
+def update_merchant_billing(
+    merchant_id: int,
+    billing_customer_id: str = None,
+    subscription_id: str = None,
+    subscription_status: str = None,
+) -> None:
+    """Update any combination of billing fields on a merchant record."""
+    fields = {}
+    if billing_customer_id is not None:
+        fields["stripe_billing_customer_id"] = billing_customer_id
+    if subscription_id is not None:
+        fields["subscription_id"] = subscription_id
+    if subscription_status is not None:
+        fields["subscription_status"] = subscription_status
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k}={PH}" for k in fields)
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            f"UPDATE merchants SET {set_clause} WHERE id={PH}",
+            (*fields.values(), merchant_id),
+        )
+
+
+def get_merchant_by_billing_customer_id(billing_customer_id: str) -> dict | None:
+    """Look up a merchant by their Stripe billing Customer ID."""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            f"SELECT * FROM merchants WHERE stripe_billing_customer_id = {PH}",
+            (billing_customer_id,),
+        )
+        return _fetchone(c)
+
+
 def get_merchant_customers(merchant_id: int, limit: int = 50, offset: int = 0) -> list:
     """Return distinct customers who have transacted with this merchant."""
     with _get_conn() as conn:

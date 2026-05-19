@@ -64,17 +64,20 @@ def _create_tables_postgres(c) -> None:
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS merchants (
-            id                     SERIAL PRIMARY KEY,
-            business_name          TEXT    NOT NULL,
-            name                   TEXT    NOT NULL,
-            email                  TEXT    NOT NULL UNIQUE,
-            password_hash          TEXT    NOT NULL,
-            api_key_hash           TEXT,
-            stripe_connect_id      TEXT,
-            stripe_connect_status  TEXT    DEFAULT 'pending',
-            last_monthly_fee_month TEXT,
-            is_active              INTEGER DEFAULT 1,
-            created_at             TEXT    NOT NULL
+            id                          SERIAL PRIMARY KEY,
+            business_name               TEXT    NOT NULL,
+            name                        TEXT    NOT NULL,
+            email                       TEXT    NOT NULL UNIQUE,
+            password_hash               TEXT    NOT NULL,
+            api_key_hash                TEXT,
+            stripe_connect_id           TEXT,
+            stripe_connect_status       TEXT    DEFAULT 'pending',
+            last_monthly_fee_month      TEXT,
+            is_active                   INTEGER DEFAULT 1,
+            created_at                  TEXT    NOT NULL,
+            stripe_billing_customer_id  TEXT,
+            subscription_id             TEXT,
+            subscription_status         TEXT    DEFAULT 'inactive'
         )
     """)
 
@@ -157,17 +160,20 @@ def _create_tables_sqlite(c) -> None:
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS merchants (
-            id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-            business_name          TEXT    NOT NULL,
-            name                   TEXT    NOT NULL,
-            email                  TEXT    NOT NULL UNIQUE,
-            password_hash          TEXT    NOT NULL,
-            api_key_hash           TEXT,
-            stripe_connect_id      TEXT,
-            stripe_connect_status  TEXT    DEFAULT 'pending',
-            last_monthly_fee_month TEXT,
-            is_active              INTEGER DEFAULT 1,
-            created_at             TEXT    NOT NULL
+            id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_name               TEXT    NOT NULL,
+            name                        TEXT    NOT NULL,
+            email                       TEXT    NOT NULL UNIQUE,
+            password_hash               TEXT    NOT NULL,
+            api_key_hash                TEXT,
+            stripe_connect_id           TEXT,
+            stripe_connect_status       TEXT    DEFAULT 'pending',
+            last_monthly_fee_month      TEXT,
+            is_active                   INTEGER DEFAULT 1,
+            created_at                  TEXT    NOT NULL,
+            stripe_billing_customer_id  TEXT,
+            subscription_id             TEXT,
+            subscription_status         TEXT    DEFAULT 'inactive'
         )
     """)
 
@@ -235,6 +241,9 @@ def _migrate_sqlite(c) -> None:
         ("stripe_connect_status", "TEXT"),
         ("last_monthly_fee_month", "TEXT"),
         ("is_active", "INTEGER"),
+        ("stripe_billing_customer_id", "TEXT"),
+        ("subscription_id", "TEXT"),
+        ("subscription_status", "TEXT"),
     ]:
         try:
             c.execute(f"ALTER TABLE merchants ADD COLUMN {col} {typ}")

@@ -20,6 +20,7 @@ STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8000")
 DATA_DIR = os.environ.get("DATA_DIR", "")
@@ -63,6 +64,13 @@ def validate_env() -> None:
         errors.append(
             "APP_BASE_URL is still set to localhost but DATABASE_URL is set (production mode). "
             "Set APP_BASE_URL to your deployed URL."
+        )
+
+    # STRIPE_PRICE_ID is required in production for merchant billing.
+    if DATABASE_URL and not STRIPE_PRICE_ID:
+        errors.append(
+            "STRIPE_PRICE_ID is not set. Create a $99/month recurring price in the Stripe "
+            "Dashboard and set this to the price_... ID."
         )
 
     if errors:

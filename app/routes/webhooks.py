@@ -20,6 +20,8 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 from app.db import (
+    get_merchant_by_billing_customer_id,
+    update_merchant_billing,
     update_merchant_connect_status_by_account,
     update_transaction_status_by_stripe_pi,
 )
@@ -50,7 +52,15 @@ async def stripe_webhook(request: Request):
     event_type = event["type"]
     data = event["data"]["object"]
 
-    if event_type == "payment_intent.succeeded":
+    if event_type in (
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        _handle_subscription_changed(data)
+    elif event_type == "invoice.payment_failed":
+        _handle_invoice_payment_failed(data)
+    elif event_type == "payment_intent.succeeded":
         _handle_payment_succeeded(data)
     elif event_type == "payment_intent.payment_failed":
         _handle_payment_failed(data)
@@ -67,6 +77,41 @@ async def stripe_webhook(request: Request):
         logger.info("Unhandled webhook event: %s", event_type)
 
     return {"received": True}
+
+
+def _handle_subscription_changed(subscription: dict) -> None:
+    """A merchant subscription was created, updated, or cancelled."""
+    sub_id = subscription.get("id", "")
+    customer_id = subscription.get("customer", "")
+    # Stripe statuses: active, past_due, canceled, unpaid, trialing, incomplete
+    status = subscription.get("status", "inactive")
+
+    merchant = get_merchant_by_billing_customer_id(customer_id)
+    if not merchant:
+        logger.info("Subscription %s for unknown billing customer %s", sub_id, customer_id)
+        return
+
+    update_merchant_billing(
+        merchant["id"],
+        subscription_id=sub_id,
+        subscription_status=status,
+    )
+    logger.info("Subscription %s → %s for merchant %s", sub_id, status, merchant["id"])
+
+
+def _handle_invoice_payment_failed(invoice: dict) -> None:
+    """A subscription invoice payment failed — merchant billing is delinquent."""
+    customer_id = invoice.get("customer", "")
+    invoice_id = invoice.get("id", "")
+    merchant = get_merchant_by_billing_customer_id(customer_id)
+    if merchant:
+        logger.warning(
+            "Invoice payment failed: invoice=%s merchant=%s — subscription may become past_due",
+            invoice_id,
+            merchant["id"],
+        )
+    else:
+        logger.warning("Invoice payment failed for unknown customer %s", customer_id)
 
 
 def _handle_payment_succeeded(payment_intent: dict) -> None:

@@ -8,10 +8,12 @@ Public API re-exported here so callers can do:
 from app.db.merchants import (
     create_merchant,
     get_merchant_by_api_key_hash,
+    get_merchant_by_billing_customer_id,
     get_merchant_by_email,
     get_merchant_by_id,
     get_merchant_customers,
     update_merchant_api_key,
+    update_merchant_billing,
     update_merchant_connect,
     update_merchant_connect_status_by_account,
     update_merchant_monthly_fee_month,
@@ -78,8 +80,10 @@ __all__ = [
     "update_merchant_connect",
     "update_merchant_connect_status_by_account",
     "update_merchant_api_key",
+    "update_merchant_billing",
     "update_merchant_monthly_fee_month",
     "get_merchant_customers",
+    "get_merchant_by_billing_customer_id",
     # tokens
     "create_reset_token",
     "get_reset_token",

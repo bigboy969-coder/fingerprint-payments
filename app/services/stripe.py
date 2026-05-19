@@ -83,6 +83,30 @@ def charge_customer(
     }
 
 
+def create_billing_customer(name: str, email: str) -> str:
+    """Create a Stripe Customer for merchant subscription billing. Returns customer_id."""
+    customer = stripe.Customer.create(name=name, email=email)
+    return customer.id
+
+
+def create_subscription_checkout(
+    billing_customer_id: str,
+    price_id: str,
+    success_url: str,
+    cancel_url: str,
+) -> str:
+    """Create a Stripe Checkout Session for a $99/month subscription. Returns the hosted URL."""
+    session = stripe.checkout.Session.create(
+        customer=billing_customer_id,
+        payment_method_types=["card"],
+        line_items=[{"price": price_id, "quantity": 1}],
+        mode="subscription",
+        success_url=success_url,
+        cancel_url=cancel_url,
+    )
+    return session.url
+
+
 def create_connect_account(email: str, business_name: str) -> str:
     """Create a Stripe Standard Connect account for a merchant. Returns the account ID."""
     account = stripe.Account.create(

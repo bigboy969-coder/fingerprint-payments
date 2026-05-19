@@ -25,7 +25,7 @@ from slowapi.util import get_remote_address
 
 limiter = Limiter(key_func=get_remote_address)
 
-from app.config import APP_BASE_URL
+from app.config import APP_BASE_URL, STRIPE_PRICE_ID
 from app.db import (
     consume_reset_token,
     create_merchant,
@@ -36,6 +36,7 @@ from app.db import (
     get_merchant_stats,
     get_reset_token,
     update_merchant_api_key,
+    update_merchant_billing,
     update_merchant_connect,
     update_merchant_connect_status_by_account,
 )
@@ -43,8 +44,10 @@ from app.routes.deps import get_merchant_from_token, hash_api_key
 from app.services.email import send_reset_email
 from app.services.jwt import create_merchant_token
 from app.services.stripe import (
+    create_billing_customer,
     create_connect_account,
     create_onboarding_link,
+    create_subscription_checkout,
     get_connect_account_status,
 )
 
@@ -162,6 +165,7 @@ async def dashboard(request: Request, authorization: str = Header(None)):
         "name": merchant["name"],
         "email": merchant["email"],
         "stripe_connect_status": connect_status,
+        "subscription_status": merchant.get("subscription_status", "inactive"),
         "stats": stats,
         "recent_transactions": recent,
     }
@@ -220,6 +224,54 @@ async def connect_return(account: str = None):
         except Exception as e:
             logger.warning("Failed to update Connect status for %s: %s", account, e)
     return RedirectResponse(url="/static/merchant-dashboard.html")
+
+
+# ── Billing ───────────────────────────────────────────────────────────────────
+
+
+@router.post("/billing/setup")
+async def billing_setup(request: Request, authorization: str = Header(None)):
+    """
+    Create a Stripe Checkout Session for the $99/month subscription and
+    return the hosted checkout URL. Creates a Stripe billing Customer for
+    the merchant if one does not already exist.
+    """
+    if not STRIPE_PRICE_ID:
+        raise HTTPException(status_code=503, detail="Billing is not configured on this server.")
+
+    merchant = get_merchant_from_token(authorization, request)
+
+    if merchant.get("subscription_status") == "active":
+        raise HTTPException(status_code=400, detail="Subscription is already active.")
+
+    try:
+        billing_customer_id = merchant.get("stripe_billing_customer_id")
+        if not billing_customer_id:
+            billing_customer_id = create_billing_customer(
+                name=merchant["name"], email=merchant["email"]
+            )
+            update_merchant_billing(merchant["id"], billing_customer_id=billing_customer_id)
+
+        checkout_url = create_subscription_checkout(
+            billing_customer_id=billing_customer_id,
+            price_id=STRIPE_PRICE_ID,
+            success_url=f"{APP_BASE_URL}/merchants/billing/return",
+            cancel_url=f"{APP_BASE_URL}/static/merchant-dashboard.html",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Billing setup failed: {e}")
+
+    return {"checkout_url": checkout_url}
+
+
+@router.get("/billing/return")
+async def billing_return():
+    """
+    Stripe redirects here after the merchant completes Checkout.
+    The subscription status is updated asynchronously via the
+    customer.subscription.created webhook.
+    """
+    return RedirectResponse(url="/static/merchant-dashboard.html?billing=success")
 
 
 # ── Regenerate API key ────────────────────────────────────────────────────────
