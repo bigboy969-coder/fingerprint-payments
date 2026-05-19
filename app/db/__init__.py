@@ -36,6 +36,7 @@ from app.db.transactions import (
     get_merchant_stats,
     record_transaction,
     update_transaction_result,
+    update_transaction_status_by_stripe_pi,
 )
 from app.db.users import (
     check_email_exists,
@@ -65,6 +66,7 @@ __all__ = [
     # transactions
     "create_pending_transaction",
     "update_transaction_result",
+    "update_transaction_status_by_stripe_pi",
     "record_transaction",
     "get_merchant_stats",
     "get_merchant_recent_transactions",

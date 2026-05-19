@@ -113,6 +113,19 @@ def record_transaction(
         return _fetchone(c)
 
 
+def update_transaction_status_by_stripe_pi(stripe_payment_intent_id: str, status: str) -> bool:
+    """Update transaction stripe_status by PaymentIntent ID.
+    Used by webhook handlers for async payment events.
+    Returns True if a matching row was found and updated."""
+    with _get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            f"UPDATE transactions SET stripe_status={PH} WHERE stripe_payment_intent_id={PH}",
+            (status, stripe_payment_intent_id),
+        )
+        return (getattr(c, "rowcount", None) or 0) > 0
+
+
 def get_merchant_stats(merchant_id: int) -> dict:
     with _get_conn() as conn:
         c = conn.cursor()

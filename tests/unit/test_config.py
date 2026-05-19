@@ -7,7 +7,7 @@ import pytest
 
 VALID_SECRET = "a" * 32
 VALID_BIOMETRIC_KEY = "0" * 64
-VALID_STRIPE_SECRET = "sk_test"
+VALID_STRIPE_SECRET = "sk_test"  # noqa: S105
 VALID_STRIPE_PUB = "pk_test"
 
 
@@ -23,6 +23,7 @@ def _reload_with(monkeypatch, **overrides):
     for k, v in defaults.items():
         monkeypatch.setenv(k, v)
     import app.config as cfg
+
     importlib.reload(cfg)
     return cfg
 
@@ -101,11 +102,13 @@ class TestConfigDefaults:
     def test_no_dangerous_jwt_default(self):
         """Config must default to empty string, not a hardcoded secret."""
         import app.config as cfg
+
         original = os.environ.get("FINGERPAY_SECRET", "")
         if not original:
             assert cfg.FINGERPAY_SECRET == "" or original == cfg.FINGERPAY_SECRET
 
     def test_app_base_url_has_safe_default(self):
         import app.config as cfg
+
         if not os.environ.get("APP_BASE_URL"):
             assert "localhost" in cfg.APP_BASE_URL

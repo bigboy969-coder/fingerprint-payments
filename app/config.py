@@ -37,7 +37,7 @@ def validate_env() -> None:
     elif len(FINGERPAY_SECRET) < 32:
         errors.append(
             f"FINGERPAY_SECRET is too short ({len(FINGERPAY_SECRET)} chars) — "
-            "generate with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+            'generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
         )
 
     if not BIOMETRIC_ENCRYPTION_KEY:
@@ -47,7 +47,7 @@ def validate_env() -> None:
         if len(key) != 64:
             errors.append(
                 f"BIOMETRIC_ENCRYPTION_KEY must be 64 hex chars (got {len(key)}) — "
-                "generate with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+                'generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
             )
         elif not all(c in "0123456789abcdefABCDEF" for c in key):
             errors.append("BIOMETRIC_ENCRYPTION_KEY must contain only hex characters (0-9, a-f)")
