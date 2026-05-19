@@ -2,7 +2,7 @@
 # Pinned to compatible-release (~=) for reproducible builds.
 # Update with: pip install --upgrade <pkg> && update this file.
 
-fastapi~=0.136.0
+fastapi~=0.136.1
 uvicorn[standard]~=0.42.0
 python-multipart~=0.0.22
 opencv-python-headless~=4.13.0
