@@ -26,21 +26,47 @@ DATA_DIR = os.environ.get("DATA_DIR", "")
 
 
 def validate_env() -> None:
-    """Raise RuntimeError if required env vars are missing.
-    Call this at app startup (lifespan), not at import time,
-    so tests can set env vars before validation runs.
+    """Raise RuntimeError if required env vars are missing or malformed.
+    Called at app startup (lifespan), not at import time, so tests can
+    set env vars before this runs.
     """
-    missing = []
+    errors = []
+
     if not FINGERPAY_SECRET:
-        missing.append("FINGERPAY_SECRET")
+        errors.append("FINGERPAY_SECRET is not set")
+    elif len(FINGERPAY_SECRET) < 32:
+        errors.append(
+            f"FINGERPAY_SECRET is too short ({len(FINGERPAY_SECRET)} chars) — "
+            "generate with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+
     if not BIOMETRIC_ENCRYPTION_KEY:
-        missing.append("BIOMETRIC_ENCRYPTION_KEY")
+        errors.append("BIOMETRIC_ENCRYPTION_KEY is not set")
+    else:
+        key = BIOMETRIC_ENCRYPTION_KEY.strip()
+        if len(key) != 64:
+            errors.append(
+                f"BIOMETRIC_ENCRYPTION_KEY must be 64 hex chars (got {len(key)}) — "
+                "generate with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        elif not all(c in "0123456789abcdefABCDEF" for c in key):
+            errors.append("BIOMETRIC_ENCRYPTION_KEY must contain only hex characters (0-9, a-f)")
+
     if not STRIPE_SECRET_KEY:
-        missing.append("STRIPE_SECRET_KEY")
+        errors.append("STRIPE_SECRET_KEY is not set")
     if not STRIPE_PUBLISHABLE_KEY:
-        missing.append("STRIPE_PUBLISHABLE_KEY")
-    if missing:
+        errors.append("STRIPE_PUBLISHABLE_KEY is not set")
+
+    # In production (Postgres), APP_BASE_URL must be explicitly set —
+    # it's used in password reset emails and Stripe Connect return URLs.
+    if DATABASE_URL and APP_BASE_URL == "http://localhost:8000":
+        errors.append(
+            "APP_BASE_URL is still set to localhost but DATABASE_URL is set (production mode). "
+            "Set APP_BASE_URL to your deployed URL."
+        )
+
+    if errors:
         raise RuntimeError(
-            f"Missing required environment variables: {', '.join(missing)}. "
-            f"See .env.example for the full list."
+            "FingerPay cannot start — fix the following environment issues:\n"
+            + "\n".join(f"  • {e}" for e in errors)
         )

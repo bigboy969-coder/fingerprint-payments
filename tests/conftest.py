@@ -9,7 +9,7 @@ import os
 import pytest
 
 # Set test env vars BEFORE any app imports
-os.environ.setdefault("FINGERPAY_SECRET", "test-secret-do-not-use-in-prod")
+os.environ.setdefault("FINGERPAY_SECRET", "test-secret-do-not-use-in-prod-xx")
 os.environ.setdefault("BIOMETRIC_ENCRYPTION_KEY", "0" * 64)
 os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_unused")
 os.environ.setdefault("STRIPE_PUBLISHABLE_KEY", "pk_test_unused")
