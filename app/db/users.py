@@ -70,8 +70,7 @@ def find_user_by_fingerprint(verification_features: bytes) -> dict:
     for row in rows:
         try:
             enrollment_blobs = [
-                blob_to_desc(decrypt_descriptor(bytes(row[f"descriptor_{i}"])))
-                for i in range(4)
+                blob_to_desc(decrypt_descriptor(bytes(row[f"descriptor_{i}"]))) for i in range(4)
             ]
             matched = match_features(verification_features, enrollment_blobs)
         except Exception:  # noqa: S112

@@ -81,7 +81,15 @@ def record_transaction(
                 INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
                 VALUES (%s, %s, %s, %s, %s, 0, %s, 0, %s) RETURNING id
             """,
-                (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, merchant_id, now),
+                (
+                    user_id,
+                    amount,
+                    merchant,
+                    stripe_payment_intent_id,
+                    stripe_status,
+                    merchant_id,
+                    now,
+                ),
             )
             tx_id = c.fetchone()[0]
         else:
@@ -90,7 +98,15 @@ def record_transaction(
                 INSERT INTO transactions (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, balance_after, merchant_id, platform_fee, created_at)
                 VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?)
             """,
-                (user_id, amount, merchant, stripe_payment_intent_id, stripe_status, merchant_id, now),
+                (
+                    user_id,
+                    amount,
+                    merchant,
+                    stripe_payment_intent_id,
+                    stripe_status,
+                    merchant_id,
+                    now,
+                ),
             )
             tx_id = c.lastrowid
         c.execute(f"SELECT * FROM transactions WHERE id = {PH}", (tx_id,))
