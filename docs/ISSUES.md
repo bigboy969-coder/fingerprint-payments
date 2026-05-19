@@ -47,15 +47,11 @@ are validated at startup. `BIOMETRIC_ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`,
 
 ### #4. Monthly platform fee can exceed transaction amount
 - **Where:** `app/services/stripe.py:47-52` + `app/routes/pay.py:76-87`
-- **What:** Platform fee = `amount * 0.005 + 0.05 + (29.00 if first tx of
-  month)`. This fee is passed to Stripe as `application_fee_amount`. Stripe
-  requires `application_fee_amount <= amount`. If the first transaction of
-  the month is < ~$28.95 (very common), the call fails with HTTP 400
-  `application_fee_amount cannot be greater than amount`.
-- **Why:** **Merchants will be unable to take their first small purchase of
-  every month.** This will be a customer-visible failure on day one of
-  production.
-- **Fix direction:** Either (a) bill the monthly fee out-of-band via a
+- **What:** ~~Platform fee = `amount * 0.005 + 0.05 + (29.00 if first tx of
+  month)`~~ **Resolved.** FingerPay switched to a $99/month flat subscription
+  model. No `application_fee_amount` is passed to Stripe. The full transaction
+  amount routes directly to the merchant's Connect account.
+- **Fix direction:** ~~Either (a) bill the monthly fee out-of-band via a
   separate Invoice on the Connect account, (b) cap the application fee at
   `amount - 1`, deferring the unbilled portion, or (c) bill monthly via a
   scheduled cron — *not* per-transaction.
