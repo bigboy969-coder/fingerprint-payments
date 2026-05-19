@@ -58,13 +58,13 @@ class TestEnrollmentStart:
                 "stripe_payment_method_id": "pm_test_1",
             },
         )
-        # Complete it with a dummy template (base64-encoded zeros)
+        # Complete it with 4 dummy 318-byte feature blobs (base64-encoded zeros)
         import base64
 
-        dummy_template = base64.b64encode(b"\x00" * 1632).decode()
+        dummy_blob = base64.b64encode(b"\x00" * 318).decode()
         client.post(
             f"/enroll/complete/{s1['session_id']}",
-            json={"template": dummy_template},
+            json={"feature_blobs": [dummy_blob] * 4},
         )
 
         # Second attempt with same email
@@ -98,13 +98,13 @@ class TestEnrollmentComplete:
             },
         )
 
-        # Complete with dummy template bytes
+        # Complete with 4 dummy 318-byte feature blobs
         import base64
 
-        dummy_template = base64.b64encode(b"\x00" * 1632).decode()
+        dummy_blob = base64.b64encode(b"\x00" * 318).decode()
         res = client.post(
             f"/enroll/complete/{session['session_id']}",
-            json={"template": dummy_template},
+            json={"feature_blobs": [dummy_blob] * 4},
         )
         assert res.status_code == 200
         assert res.json()["success"] is True
@@ -114,9 +114,9 @@ class TestEnrollmentComplete:
         import base64
 
         session = client.post("/enroll/session").json()
-        dummy_template = base64.b64encode(b"\x00" * 1632).decode()
+        dummy_blob = base64.b64encode(b"\x00" * 318).decode()
         res = client.post(
             f"/enroll/complete/{session['session_id']}",
-            json={"template": dummy_template},
+            json={"feature_blobs": [dummy_blob] * 4},
         )
         assert res.status_code == 400
