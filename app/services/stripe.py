@@ -101,6 +101,7 @@ def create_subscription_checkout(
         payment_method_types=["card"],
         line_items=[{"price": price_id, "quantity": 1}],
         mode="subscription",
+        subscription_data={"trial_period_days": 60},
         success_url=success_url,
         cancel_url=cancel_url,
     )
